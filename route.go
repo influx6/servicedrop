@@ -10,6 +10,7 @@ import (
 
 //PayloadRack stores a payload for a specific range of time or
 //instantly resolves the timeout set for the rack
+//the timeout value will be multiplied by time.Millisecond so choose appropriately
 type PayloadRack struct {
 	payload chan interface{}
 	timeout time.Duration
