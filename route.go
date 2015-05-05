@@ -295,7 +295,7 @@ type RouteMaker struct {
 
 //NewRouteMaker returns a route maker that generates standand
 //routes without the payload patch
-func NewRouteMaker(route string, buf, ts int, payload bool, fail flux.ActionInterface) *RouteMaker {
+func NewRouteMaker(route string, buf, ts int, fail flux.ActionInterface) *RouteMaker {
 	store := make(map[string]*Route)
 
 	rv := &RouteMaker{
