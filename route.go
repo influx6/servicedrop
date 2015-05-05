@@ -138,10 +138,15 @@ type Route struct {
 //New adds a new route to the current routes routemaker as a subroute
 //the path string can only be a single route not a multiple
 //So 'io' not '/io/sucker/{f:[/w]}'
-func (r *Route) New(path string) *Route {
-	id, _, _ := reggy.YankSpecial(path)
+//Note: '/' returns the route itself
+func (r *Route) New(path string) {
 	r.childRoutes.Combine("/", path)
-	return r.childRoutes.Route(id)
+}
+
+//Children returns the total child routes possed by these route
+//r.childRoutes.Size() - 1 : because the child route is set to "/"
+func (r *Route) Children() int {
+	return r.childRoutes.Size() - 1
 }
 
 //Child checks the route routemaker if the specific childroute exits
@@ -361,7 +366,7 @@ func (r *RouteMaker) Combine(m, n string) {
 
 	_, ok = r.routes[id]
 
-	if !ok {
+	if ok {
 		return
 	}
 

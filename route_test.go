@@ -139,6 +139,27 @@ func TestDivertRoute(t *testing.T) {
 
 }
 
+func TestRootRouteMaker(t *testing.T) {
+	r := NewRoute("apple", 2, 0, nil)
+
+	r.New("red")
+
+	if r.Children() > 1 {
+		t.Fatalf("Route maker with route %s has only %d", r.Path, r.Children())
+	}
+
+	red := r.Child("red")
+
+	if red == nil {
+		t.Fatal("/apple/red route does not exists:", red, r)
+
+		if red.Path != "red" {
+			t.Fatalf("found /dog route but path is: %s", red.Path)
+		}
+	}
+
+}
+
 func TestRouteMaker(t *testing.T) {
 	path := `/dogs/{amt:[\w+]}`
 	maker := NewRouteMaker(path, 2, 0, nil)
