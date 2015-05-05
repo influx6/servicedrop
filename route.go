@@ -75,8 +75,12 @@ func splitPattern(c string) []string {
 	return strings.Split(c, "/")
 }
 
+func trimSlash(c string) string {
+	return strings.TrimPrefix(c, "/")
+}
+
 func splitPatternAndRemovePrefix(c string) []string {
-	return splitPattern(strings.TrimPrefix(c, "/"))
+	return splitPattern(trimSlash(c))
 }
 
 //RouteInterface defines route member rules
@@ -129,6 +133,21 @@ type Route struct {
 	Invalid     *flux.Push
 	fail        flux.ActionInterface
 	DTO         int
+}
+
+//New adds a new route to the current routes routemaker as a subroute
+//the path string can only be a single route not a multiple
+//So 'io' not '/io/sucker/{f:[/w]}'
+func (r *Route) New(path string) *Route {
+	id, _, _ := reggy.YankSpecial(path)
+	r.childRoutes.Combine("/", path)
+	return r.childRoutes.Route(id)
+}
+
+//Child checks the route routemaker if the specific childroute exits
+func (r *Route) Child(path string) *Route {
+	id, _, _ := reggy.YankSpecial(path)
+	return r.childRoutes.Route(id)
 }
 
 //Sub decorates the Route.Valid.Subscribe with a more request friend closure caller
@@ -313,6 +332,14 @@ type RouteMaker struct {
 	lock    *sync.RWMutex
 }
 
+//Size returns the total number of children routes
+func (r *RouteMaker) Size() int {
+	r.lock.RLock()
+	l := len(r.routes)
+	r.lock.RUnlock()
+	return l
+}
+
 //Route retrieves the route with the id
 func (r *RouteMaker) Route(m string) *Route {
 	r.lock.RLock()
@@ -330,7 +357,7 @@ func (r *RouteMaker) Combine(m, n string) {
 		return
 	}
 
-	id, _, _ := reggy.YankSpecial(n)
+	id, _, _ := reggy.YankSpecial(trimSlash(n))
 
 	_, ok = r.routes[id]
 
