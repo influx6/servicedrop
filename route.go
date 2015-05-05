@@ -2,6 +2,7 @@ package servicedrop
 
 import (
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/influx6/flux"
@@ -121,12 +122,13 @@ func FromRequest(r *Request, param interface{}) *Request {
 //Route defines a single route path
 type Route struct {
 	flux.SocketInterface
-	Path    string
-	Pattern *reggy.ClassicMatcher
-	Valid   *flux.Push
-	Invalid *flux.Push
-	fail    flux.ActionInterface
-	DTO     int
+	childRoutes *RouteMaker
+	Path        string
+	Pattern     *reggy.ClassicMatcher
+	Valid       *flux.Push
+	Invalid     *flux.Push
+	fail        flux.ActionInterface
+	DTO         int
 }
 
 //Sub decorates the Route.Valid.Subscribe with a more request friend closure caller
@@ -174,6 +176,7 @@ func RawRoute(path string, base *flux.Push, ts int, fail flux.ActionInterface) *
 	m := reggy.GenerateClassicMatcher(path)
 	r := &Route{
 		base,
+		nil,
 		m.Original,
 		m,
 		nil,
@@ -182,6 +185,10 @@ func RawRoute(path string, base *flux.Push, ts int, fail flux.ActionInterface) *
 		ts,
 	}
 
+	//add route maker for child routes
+	r.childRoutes = RootRouteMaker(r, r.fail)
+
+	//add new socket for valid routes and optional can made into payloadable
 	r.Valid = flux.DoPushSocket(r, func(v interface{}, s flux.SocketInterface) {
 		req, ok := v.(*Request)
 
@@ -247,6 +254,18 @@ func FromRoute(r *Route, path string) *Route {
 	}), r.DTO, r.fail)
 }
 
+//PatchRoute makes a route capable of creating PayloadRack route request
+//by adding a fail action which dictates if routes should be made Payload Packets
+//and returns the action for use
+func PatchRoute(r *Route) flux.ActionInterface {
+	if r.fail != nil {
+		return r.fail
+	}
+
+	r.fail = flux.NewAction()
+	return r.fail
+}
+
 //InvertRoute returns a route based on a previous route rejection of a request
 //provides a divert like or not path logic (i.e if that path does not match the parent route)
 //then this gets validate that rejected route)
@@ -291,6 +310,53 @@ type RouteMaker struct {
 	routes  map[string]*Route
 	timeout int
 	fail    flux.ActionInterface
+	lock    *sync.RWMutex
+}
+
+//Route retrieves the route with the id
+func (r *RouteMaker) Route(m string) *Route {
+	r.lock.RLock()
+	w := r.routes[m]
+	r.lock.RUnlock()
+	return w
+}
+
+//Combine adds a route path into the route,but will excluse if that route
+//already exists
+func (r *RouteMaker) Combine(m, n string) {
+	w, ok := r.routes[m]
+
+	if !ok {
+		return
+	}
+
+	id, _, _ := reggy.YankSpecial(n)
+
+	_, ok = r.routes[id]
+
+	if !ok {
+		return
+	}
+
+	r.lock.Lock()
+	r.routes[id] = FromRoute(w, n)
+	r.lock.Unlock()
+}
+
+func makeRoute(route string, rm *RouteMaker, buf, ts int, fail flux.ActionInterface) {
+	var last *Route
+	parts := splitPatternAndRemovePrefix(route)
+
+	for _, piece := range parts {
+		if last == nil {
+			last = NewRoute(piece, buf, ts, fail)
+		} else {
+			tmp := last
+			last = FromRoute(tmp, piece)
+		}
+
+		rm.routes[last.Path] = last
+	}
 }
 
 //NewRouteMaker returns a route maker that generates standand
@@ -302,20 +368,20 @@ func NewRouteMaker(route string, buf, ts int, fail flux.ActionInterface) *RouteM
 		store,
 		-1,
 		fail,
+		new(sync.RWMutex),
 	}
 
-	var last *Route
-	parts := splitPatternAndRemovePrefix(route)
-
-	for _, piece := range parts {
-		if last == nil {
-			last = NewRoute(piece, buf, ts, fail)
-		} else {
-			tmp := last
-			last = FromRoute(tmp, piece)
-		}
-		store[last.Path] = last
-	}
-
+	makeRoute(route, rv, buf, ts, fail)
 	return rv
+}
+
+//RootRouteMaker returns a route maker with a single route in its map
+//useful for when routes need internal routemakers for organization
+func RootRouteMaker(root *Route, fail flux.ActionInterface) *RouteMaker {
+	return &RouteMaker{
+		map[string]*Route{"/": root},
+		-1,
+		fail,
+		new(sync.RWMutex),
+	}
 }
