@@ -8,7 +8,7 @@ import (
 )
 
 func TestRoute(t *testing.T) {
-	r := NewRoute("apple", 2)
+	r := NewRoute("apple", 2, 0, nil)
 
 	r.Sub(func(r *Request, s *flux.Sub) {
 		defer s.Close()
@@ -19,14 +19,13 @@ func TestRoute(t *testing.T) {
 
 	})
 
-	r.Serve("apple", "red!")
+	r.Serve("apple", "red!", 0)
 
 }
 
 func TestRouteWithPayloadPack(t *testing.T) {
 	fail := flux.NewAction()
-	r := NewRoute("apple", 2)
-	pk := NewPayloadRack(2, fail)
+	r := NewRoute("apple", 2, 3, fail)
 	wait := new(sync.WaitGroup)
 
 	fail.When(func(b interface{}, _ flux.ActionInterface) {
@@ -54,16 +53,14 @@ func TestRouteWithPayloadPack(t *testing.T) {
 	})
 
 	wait.Add(1)
-	pk.Load("red")
-	r.Serve("apple", pk)
+	r.Serve("apple", "red", 2)
 	wait.Wait()
 
 }
 
 func TestRouteWithPayloadPackFailure(t *testing.T) {
 	fail := flux.NewAction()
-	r := NewRoute("rack", 2)
-	pk := NewPayloadRack(2, fail)
+	r := NewRoute("rack", 2, 3, fail)
 	wait := new(sync.WaitGroup)
 
 	fail.When(func(b interface{}, _ flux.ActionInterface) {
@@ -83,14 +80,13 @@ func TestRouteWithPayloadPackFailure(t *testing.T) {
 	})
 
 	wait.Add(1)
-	pk.Load("red")
-	r.Serve("rack", pk)
+	r.Serve("rack", "red", 2)
 	wait.Wait()
 
 }
 
 func TestChildRoute(t *testing.T) {
-	r := NewRoute("apple", 2)
+	r := NewRoute("apple", 2, 0, nil)
 	w := FromRoute(r, `{id:[\d+]}`)
 
 	r.Sub(func(r *Request, s *flux.Sub) {
@@ -111,14 +107,14 @@ func TestChildRoute(t *testing.T) {
 
 	})
 
-	r.Serve("apple", "red!")
-	r.Serve("apple/20", "fruits!")
+	r.Serve("apple", "red!", 0)
+	r.Serve("apple/20", "fruits!", 0)
 
 }
 
 func TestDivertRoute(t *testing.T) {
-	r := NewRoute("apple", 2)
-	w := InvertRoute(r, `{id:[\d+]}`)
+	r := NewRoute("apple", 2, 0, nil)
+	w := InvertRoute(r, `{id:[\d+]}`, nil)
 
 	r.Sub(func(r *Request, s *flux.Sub) {
 		defer s.Close()
@@ -138,7 +134,7 @@ func TestDivertRoute(t *testing.T) {
 
 	})
 
-	r.Serve("20", "fruits!")
-	r.Serve("reck/300", "red!")
+	r.Serve("20", "fruits!", 0)
+	r.Serve("reck/300", "red!", 0)
 
 }

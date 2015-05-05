@@ -11,6 +11,8 @@ import (
 //PayloadRack stores a payload for a specific range of time or
 //instantly resolves the timeout set for the rack
 //the timeout value will be multiplied by time.Millisecond so choose appropriately
+//Note: If the timeout is a negative number then its seen as an immediate resolve
+//else the normal process of time after is done
 type PayloadRack struct {
 	payload chan interface{}
 	timeout time.Duration
@@ -21,7 +23,7 @@ type PayloadRack struct {
 //Load sets the payloadrack payload
 func (p *PayloadRack) Load(b interface{}) {
 	go func() {
-		if p.timeout <= 0 {
+		if p.timeout <= -1 {
 			go p.collect()
 		} else {
 			go func() {
@@ -87,15 +89,17 @@ type Request struct {
 	Paths   []string
 	Payload interface{}
 	Param   interface{}
+	Timeout int
 }
 
 //NewRequest returns a new request packet from a path and payload with an
 //option param
-func NewRequest(path string, pay interface{}, param interface{}) *Request {
+func NewRequest(path string, pay interface{}, param interface{}, ts int) *Request {
 	return &Request{
 		splitPatternAndRemovePrefix(path),
 		pay,
 		param,
+		ts,
 	}
 }
 
@@ -110,6 +114,7 @@ func FromRequest(r *Request, param interface{}) *Request {
 		r.Paths[1:],
 		r.Payload,
 		param,
+		r.Timeout,
 	}
 }
 
@@ -120,6 +125,8 @@ type Route struct {
 	Pattern *reggy.ClassicMatcher
 	Valid   *flux.Push
 	Invalid *flux.Push
+	fail    flux.ActionInterface
+	DTO     int
 }
 
 //Sub decorates the Route.Valid.Subscribe with a more request friend closure caller
@@ -163,7 +170,7 @@ func (r *Route) NotSub(fnx func(r *Request, s *flux.Sub)) *flux.Sub {
 
 //RawRoute returns a route struct for a specific route path
 // which allows us to do NewRoute('{id:[/d+/]}')
-func RawRoute(path string, base *flux.Push) *Route {
+func RawRoute(path string, base *flux.Push, ts int, fail flux.ActionInterface) *Route {
 	m := reggy.GenerateClassicMatcher(path)
 	r := &Route{
 		base,
@@ -171,6 +178,8 @@ func RawRoute(path string, base *flux.Push) *Route {
 		m,
 		nil,
 		flux.PushSocket(100),
+		fail,
+		ts,
 	}
 
 	r.Valid = flux.DoPushSocket(r, func(v interface{}, s flux.SocketInterface) {
@@ -178,6 +187,26 @@ func RawRoute(path string, base *flux.Push) *Route {
 
 		if !ok {
 			return
+		}
+
+		if r.fail != nil {
+			_, ok = req.Payload.(*PayloadRack)
+
+			if !ok {
+
+				var to int
+				if req.Timeout == 0 {
+					to = r.DTO
+				} else {
+					to = req.Timeout
+				}
+
+				py := req.Payload
+				pl := NewPayloadRack(to, fail)
+
+				req.Payload = pl
+				pl.Load(py)
+			}
 		}
 
 		f := req.Paths[0]
@@ -197,34 +226,15 @@ func RawRoute(path string, base *flux.Push) *Route {
 	return r
 }
 
-//PatchPayloadRoute returns a new route that auto-turns all route payloads
-//into Payload
-func PatchPayloadRoute(r *Route, defout int, fail flux.ActionInterface) *Route {
-	return RawRoute(r.Path, flux.DoPushSocket(r, func(v interface{}, sock flux.SocketInterface) {
-		req, ok := v.(*Request)
-
-		if !ok {
-			return
-		}
-
-		py := req.Payload
-		pl := NewPayloadRack(defout, fail)
-
-		req.Payload = pl
-		pl.Load(py)
-		sock.Emit(req)
-	}))
-}
-
 //NewRoute returns a route struct for a specific route path
 // which allows us to do NewRoute('{id:[/d+/]}')
-func NewRoute(path string, buf int) *Route {
-	return RawRoute(path, flux.PushSocket(buf))
+func NewRoute(path string, buf int, ts int, fail flux.ActionInterface) *Route {
+	return RawRoute(path, flux.PushSocket(buf), ts, fail)
 }
 
 //FromRoute returns a route based on a previous route
 func FromRoute(r *Route, path string) *Route {
-	valids := flux.DoPushSocket(r.Valid, func(v interface{}, s flux.SocketInterface) {
+	return RawRoute(path, flux.DoPushSocket(r.Valid, func(v interface{}, s flux.SocketInterface) {
 		req, ok := v.(*Request)
 
 		if !ok {
@@ -234,15 +244,15 @@ func FromRoute(r *Route, path string) *Route {
 		nreq := FromRequest(req, nil)
 
 		s.Emit(nreq)
-	})
-
-	return RawRoute(path, valids)
+	}), r.DTO, r.fail)
 }
 
 //InvertRoute returns a route based on a previous route rejection of a request
 //provides a divert like or not path logic (i.e if that path does not match the parent route)
 //then this gets validate that rejected route)
-func InvertRoute(r *Route, path string) *Route {
+//the fail action can be set as nil which then uses the previous fail action from
+//the previous route
+func InvertRoute(r *Route, path string, fail flux.ActionInterface) *Route {
 	valids := flux.DoPushSocket(r.Invalid, func(v interface{}, s flux.SocketInterface) {
 		req, ok := v.(*Request)
 
@@ -250,21 +260,23 @@ func InvertRoute(r *Route, path string) *Route {
 			return
 		}
 
-		// nreq := FromRequest(req, nil)
-
 		s.Emit(req)
 	})
 
-	return RawRoute(path, valids)
+	if fail == nil {
+		fail = r.fail
+	}
+
+	return RawRoute(path, valids, r.DTO, fail)
 }
 
 //Serve takes a path and a payload value to be validated by the route
-func (r *Route) Serve(path string, b interface{}) {
+func (r *Route) Serve(path string, b interface{}, timeout int) {
 	if path == "" || path == "/" {
 		return
 	}
 
-	r.ServeRequest(NewRequest(path, b, nil))
+	r.ServeRequest(NewRequest(path, b, nil, timeout))
 }
 
 //ServeRequest takes a *Request and validates its first path (i.e path[0])
@@ -272,4 +284,38 @@ func (r *Route) Serve(path string, b interface{}) {
 //socket if invalid
 func (r *Route) ServeRequest(rw *Request) {
 	r.Emit(rw)
+}
+
+//RouteMaker takes a long string of route paths and creates corresponding routes for each
+type RouteMaker struct {
+	routes  map[string]*Route
+	timeout int
+	fail    flux.ActionInterface
+}
+
+//NewRouteMaker returns a route maker that generates standand
+//routes without the payload patch
+func NewRouteMaker(route string, buf, ts int, payload bool, fail flux.ActionInterface) *RouteMaker {
+	store := make(map[string]*Route)
+
+	rv := &RouteMaker{
+		store,
+		-1,
+		fail,
+	}
+
+	var last *Route
+	parts := splitPatternAndRemovePrefix(route)
+
+	for _, piece := range parts {
+		if last == nil {
+			last = NewRoute(piece, buf, ts, fail)
+		} else {
+			tmp := last
+			last = FromRoute(tmp, piece)
+		}
+		store[last.Path] = last
+	}
+
+	return rv
 }
