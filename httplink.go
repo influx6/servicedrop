@@ -9,6 +9,8 @@ import (
 	"github.com/influx6/flux"
 )
 
+// var excslash = regexp.MustCompile(`/+`)
+
 //HTTPProtocolLink handles http request connection
 type HTTPProtocolLink struct {
 	*ProtocolLink
@@ -36,21 +38,29 @@ func NewHTTPSecureLink(prefix string, addr string, port int, trans *http.Transpo
 
 //Request is the base level method upon which all protocolink requests are handled
 func (h *HTTPProtocolLink) Request(path string, body io.Reader) flux.ActionStackInterface {
-	addr := fmt.Sprintf("%s:%s", h.Descriptor().Address, h.Descriptor().Port)
+	addr := fmt.Sprintf("%s:%d/%s", h.Descriptor().Address, h.Descriptor().Port, h.Descriptor().Service)
+
 	url := fmt.Sprintf("%s://%s/%s", h.Descriptor().Scheme, addr, path)
 
-	act := flux.NewAction()
-	resact := flux.NewAction()
+	log.Println("path to request:", addr, url)
+
+	red := flux.NewAction()
 	erd := flux.NewAction()
-	ad := flux.NewActDepend(act)
+	act := red.Chain(7)
 
-	ad.UseThen(func(b interface{}, r flux.ActionInterface) {
-		r.Fullfill(b)
-	}, resact)
-
-	resact.Then(func(b interface{}, _ flux.ActionInterface) {
-		log.Println("received next b:", b)
+	red.When(func(b interface{}, _ flux.ActionInterface) {
+		log.Println("req-action fullfilled:", b)
 	})
+
+	red.Wrap().When(func(b interface{}, _ flux.ActionInterface) {
+		log.Println("req-action-wrap fullfilled:", b)
+	})
+
+	act.When(func(b interface{}, _ flux.ActionInterface) {
+		log.Println("depend-action fullfilled:", b)
+	})
+
+	cl := flux.NewActionStackBy(act, erd)
 
 	var req *http.Request
 	var err error
@@ -59,18 +69,20 @@ func (h *HTTPProtocolLink) Request(path string, body io.Reader) flux.ActionStack
 		req, err = http.NewRequest("GET", url, body)
 
 		if err != nil {
-			erd.Fullfill(err)
+			cl.Complete(err)
+			return cl
 		}
 
 	} else {
 		req, err = http.NewRequest("POST", url, body)
 
 		if err != nil {
-			erd.Fullfill(err)
+			cl.Complete(err)
+			return cl
 		}
 	}
 
-	act.Fullfill(req)
+	cl.Complete(req)
 
-	return flux.NewActionStackBy(ad, erd)
+	return cl
 }
