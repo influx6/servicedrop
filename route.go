@@ -197,10 +197,29 @@ func RawRoute(path string, base *flux.Push) *Route {
 	return r
 }
 
+//PatchPayloadRoute returns a new route that auto-turns all route payloads
+//into Payload
+func PatchPayloadRoute(r *Route, defout int, fail flux.ActionInterface) *Route {
+	return RawRoute(r.Path, flux.DoPushSocket(r, func(v interface{}, sock flux.SocketInterface) {
+		req, ok := v.(*Request)
+
+		if !ok {
+			return
+		}
+
+		py := req.Payload
+		pl := NewPayloadRack(defout, fail)
+
+		req.Payload = pl
+		pl.Load(py)
+		sock.Emit(req)
+	}))
+}
+
 //NewRoute returns a route struct for a specific route path
 // which allows us to do NewRoute('{id:[/d+/]}')
-func NewRoute(path string) *Route {
-	return RawRoute(path, flux.PushSocket(100))
+func NewRoute(path string, buf int) *Route {
+	return RawRoute(path, flux.PushSocket(buf))
 }
 
 //FromRoute returns a route based on a previous route

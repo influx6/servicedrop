@@ -8,7 +8,7 @@ import (
 )
 
 func TestRoute(t *testing.T) {
-	r := NewRoute("apple")
+	r := NewRoute("apple", 2)
 
 	r.Sub(func(r *Request, s *flux.Sub) {
 		defer s.Close()
@@ -25,7 +25,7 @@ func TestRoute(t *testing.T) {
 
 func TestRouteWithPayloadPack(t *testing.T) {
 	fail := flux.NewAction()
-	r := NewRoute("apple")
+	r := NewRoute("apple", 2)
 	pk := NewPayloadRack(2, fail)
 	wait := new(sync.WaitGroup)
 
@@ -62,7 +62,7 @@ func TestRouteWithPayloadPack(t *testing.T) {
 
 func TestRouteWithPayloadPackFailure(t *testing.T) {
 	fail := flux.NewAction()
-	r := NewRoute("rack")
+	r := NewRoute("rack", 2)
 	pk := NewPayloadRack(2, fail)
 	wait := new(sync.WaitGroup)
 
@@ -90,7 +90,7 @@ func TestRouteWithPayloadPackFailure(t *testing.T) {
 }
 
 func TestChildRoute(t *testing.T) {
-	r := NewRoute("apple")
+	r := NewRoute("apple", 2)
 	w := FromRoute(r, `{id:[\d+]}`)
 
 	r.Sub(func(r *Request, s *flux.Sub) {
@@ -117,7 +117,7 @@ func TestChildRoute(t *testing.T) {
 }
 
 func TestDivertRoute(t *testing.T) {
-	r := NewRoute("apple")
+	r := NewRoute("apple", 2)
 	w := InvertRoute(r, `{id:[\d+]}`)
 
 	r.Sub(func(r *Request, s *flux.Sub) {
