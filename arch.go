@@ -1,6 +1,9 @@
 package servicedrop
 
-import "io"
+import (
+	"fmt"
+	"io"
+)
 import "code.google.com/p/go-uuid/uuid"
 import "github.com/influx6/flux"
 
@@ -8,6 +11,18 @@ import "github.com/influx6/flux"
 type ProtocolLinkInterface interface {
 	Request(string, io.Reader) flux.ActionStackInterface
 	Descriptor() *ProtocolDescriptor
+	Dial() error
+	Drop() error
+}
+
+//Drop allows the ending if possible of a connection
+func (p *ProtocolLink) Drop() error {
+	return nil
+}
+
+//Dial allows the initiation of a protocol link connection
+func (p *ProtocolLink) Dial() error {
+	return nil
 }
 
 //ProtocolDescriptor describes a protocol identity
@@ -34,6 +49,11 @@ func NewDescriptor(proto string, name string, addr string, port int, zone string
 		proto,
 		uuid.New(),
 	}
+}
+
+//Host returns the combination of address and port in 'Addr:Port' format
+func (d *ProtocolDescriptor) Host() string {
+	return fmt.Sprintf("%s:%d", d.Address, d.Port)
 }
 
 //Base describes a shared type by protocols and links

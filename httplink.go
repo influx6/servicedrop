@@ -3,13 +3,10 @@ package servicedrop
 import (
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 
 	"github.com/influx6/flux"
 )
-
-// var excslash = regexp.MustCompile(`/+`)
 
 //HTTPProtocolLink handles http request connection
 type HTTPProtocolLink struct {
@@ -39,25 +36,34 @@ func NewHTTPSecureLink(prefix string, addr string, port int, trans *http.Transpo
 //Request is the base level method upon which all protocolink requests are handled
 func (h *HTTPProtocolLink) Request(path string, body io.Reader) flux.ActionStackInterface {
 	addr := fmt.Sprintf("%s:%d/%s", h.Descriptor().Address, h.Descriptor().Port, h.Descriptor().Service)
-
+	addr = ExcessSlash.ReplaceAllString(addr, "/")
+	addr = EndSlash.ReplaceAllString(addr, "")
+	path = ExcessSlash.ReplaceAllString(path, "/")
+	path = EndSlash.ReplaceAllString(path, "")
 	url := fmt.Sprintf("%s://%s/%s", h.Descriptor().Scheme, addr, path)
-
-	log.Println("path to request:", addr, url)
 
 	red := flux.NewAction()
 	erd := flux.NewAction()
-	act := red.Chain(7)
 
-	red.When(func(b interface{}, _ flux.ActionInterface) {
-		log.Println("req-action fullfilled:", b)
-	})
+	act := red.Chain(3)
 
-	red.Wrap().When(func(b interface{}, _ flux.ActionInterface) {
-		log.Println("req-action-wrap fullfilled:", b)
-	})
+	//we do these so we can override what happens after the user adds all they
+	//want on the request
+	act.OverrideBefore(1, func(b interface{}, next flux.ActionInterface) {
+		rq, ok := b.(*http.Request)
 
-	act.When(func(b interface{}, _ flux.ActionInterface) {
-		log.Println("depend-action fullfilled:", b)
+		if !ok {
+			// next.Fullfill(b interface)
+			return
+		}
+
+		rq.Header.Set("X-Service-Request", h.Descriptor().Service)
+
+		res, err := h.client.Do(rq)
+
+		pck := NewHTTPPacket(res, rq, err)
+
+		next.Fullfill(pck)
 	})
 
 	cl := flux.NewActionStackBy(act, erd)

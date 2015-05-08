@@ -1,7 +1,7 @@
 package servicedrop
 
 import (
-	"log"
+	"net/http"
 	"testing"
 
 	"github.com/influx6/flux"
@@ -9,24 +9,21 @@ import (
 
 func TestHTTPProLink(t *testing.T) {
 
-	link := NewHTTPLink("io", "127.0.0.1", 80)
+	link := NewHTTPLink("", "127.0.0.1", 80)
 
 	if link == nil {
 		t.Fatal("new link not created", link)
 	}
 
-	link.Request("/", nil).Done().Then(func(b interface{}, next flux.ActionInterface) {
-		log.Println("we got req?", b)
-		next.Fullfill("wind")
-	}).Then(func(b interface{}, next flux.ActionInterface) {
-		log.Println("1.we got to next stage?", b)
-		next.Fullfill("shock")
-	}).Then(func(b interface{}, next flux.ActionInterface) {
-		log.Println("2.we got to next stage?", b)
-		next.Fullfill("drop")
-	}).Then(func(b interface{}, next flux.ActionInterface) {
-		log.Println("3.we got to next stage?", b)
-		next.Fullfill("flat")
-	})
+	ax := link.Request("/", nil).Done().Then(WhenHTTPRequest(func(req *http.Request, next flux.ActionInterface) {
+		req.Header.Set("X-WE-Wrote-IT", "1")
+		next.Fullfill(req)
+	}))
+
+	pck := <-ax.Sync(2)
+
+	if _, ok := pck.(*HTTPPacket); !ok {
+		t.Fatal("Returned value is not a HTTPPacket:", ok, pck, ax)
+	}
 
 }
