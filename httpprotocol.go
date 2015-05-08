@@ -1,6 +1,9 @@
 package servicedrop
 
-//HTTPProtocol defines the struct for http based services
-type HTTPProtocol struct {
-	*Protocol
-}
+type (
+
+	//HTTPProtocol defines the struct for http based services
+	HTTPProtocol struct {
+		*Protocol
+	}
+)

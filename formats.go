@@ -1,14 +1,19 @@
 package servicedrop
 
 import (
+	"bytes"
 	"errors"
+	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"regexp"
 	"strings"
 
+	// "code.google.com/p/go.crypto/ssh"
+
 	"github.com/influx6/flux"
+	"golang.org/x/crypto/ssh"
 )
 
 type (
@@ -36,6 +41,13 @@ type (
 	SSHPacket struct {
 		Cmd string
 	}
+
+	//SSHSession is used to represent a current working ssh session
+	SSHSession struct {
+		*ssh.Session
+		Read  io.Reader
+		Write io.Writer
+	}
 )
 
 var (
@@ -52,6 +64,14 @@ var (
 	//EndSlash is a regexp for ending slashes /
 	EndSlash = regexp.MustCompile(`/+$`)
 )
+
+//NewSSHSession creates a new ssh session instance
+func NewSSHSession(s *ssh.Session, in io.Reader) *SSHSession {
+	out := new(bytes.Buffer)
+	s.Stdin = in
+	s.Stdout = out
+	return &SSHSession{s, in, out}
+}
 
 //Sanitize cleans a text for secure uses
 func Sanitize(s string) string {

@@ -5,8 +5,10 @@ import (
 	"io"
 	"io/ioutil"
 
-	"code.google.com/p/go.crypto/ssh"
+	// "code.google.com/p/go.crypto/ssh"
 	"github.com/influx6/flux"
+	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
 )
 
 //SSHProtocolLink handles http request connection
@@ -121,14 +123,43 @@ func (h *SSHProtocolLink) Dial() error {
 
 }
 
+//FS creates a ftp client on the remote connection and allows file base op
+func (h *SSHProtocolLink) FS() flux.ActionStackInterface {
+	req := flux.NewAction()
+	eo := flux.NewAction()
+	st := flux.NewActionStackBy(req, eo)
+
+	ch := req.Chain(2)
+
+	ch.OverrideBefore(1, func(b interface{}, next flux.ActionInterface) {
+		ce, ok := b.(*sftp.Client)
+
+		if !ok {
+			return
+		}
+
+		ce.Close()
+	})
+
+	cl, err := sftp.NewClient(h.conn)
+
+	if err != nil {
+		st.Complete(err)
+	} else {
+		st.Complete(cl)
+	}
+
+	return st
+}
+
+//Command run a given command from the remote host through the ssh.Client connection
+func (h *SSHProtocolLink) Command(cmd string) flux.ActionInterface {
+	return nil
+}
+
 //Request is the base level method upon which all protocolink requests are handled
+//for the sake of
 func (h *SSHProtocolLink) Request(path string, body io.Reader) flux.ActionStackInterface {
-	// addr := fmt.Sprintf("%s:%d/%s", h.Descriptor().Address, h.Descriptor().Port, h.Descriptor().Service)
-	// addr = ExcessSlash.ReplaceAllString(addr, "/")
-	// addr = EndSlash.ReplaceAllString(addr, "")
-	// path = ExcessSlash.ReplaceAllString(path, "/")
-	// path = EndSlash.ReplaceAllString(path, "")
-	// url := fmt.Sprintf("%s://%s/%s", h.Descriptor().Scheme, addr, path)
 
 	req := flux.NewAction()
 	err := flux.NewAction()
@@ -142,7 +173,7 @@ func (h *SSHProtocolLink) Request(path string, body io.Reader) flux.ActionStackI
 	act := req.Chain(2)
 
 	act.OverrideBefore(1, func(b interface{}, next flux.ActionInterface) {
-		se, ok := b.(*ssh.Session)
+		se, ok := b.(*SSHSession)
 
 		if !ok {
 			return
@@ -156,7 +187,7 @@ func (h *SSHProtocolLink) Request(path string, body io.Reader) flux.ActionStackI
 	if err != nil {
 		st.Complete(er)
 	} else {
-		st.Complete(session)
+		st.Complete(NewSSHSession(session, body))
 	}
 
 	return st
