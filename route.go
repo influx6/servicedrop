@@ -10,6 +10,10 @@ import (
 	"github.com/influx6/reggy"
 )
 
+//Failure is a function that types behaviour to be done when using Packets and
+//you want to attach a reaction to when a packet has failed usually its timeout
+type Failure func(flux.ActionInterface)
+
 //PayloadRack stores a payload for a specific range of time or
 //instantly resolves the timeout set for the rack
 //the timeout value will be multiplied by time.Millisecond so choose appropriately
@@ -52,6 +56,11 @@ func (p *PayloadRack) collect() {
 	p.done.Fullfill(pkt)
 }
 
+//Failed returns a packet's fail ActionInterface
+func (p *PayloadRack) Failed() flux.ActionInterface {
+	return p.fail.Wrap()
+}
+
 //Release collects the payload from the payload rack
 func (p *PayloadRack) Release() flux.ActionInterface {
 	p.collect()
@@ -59,14 +68,19 @@ func (p *PayloadRack) Release() flux.ActionInterface {
 }
 
 //NewPayloadRack returns a new instance of the payloadrack
-func NewPayloadRack(timeout int, fail flux.ActionInterface) *PayloadRack {
-
-	return &PayloadRack{
+func NewPayloadRack(timeout int, fx Failure) *PayloadRack {
+	p := &PayloadRack{
 		make(chan interface{}),
 		time.Duration(timeout) * time.Millisecond,
-		fail,
+		flux.NewAction(),
 		flux.NewAction(),
 	}
+
+	if fx != nil {
+		fx(p.Failed())
+	}
+
+	return p
 }
 
 //Sub aliases flux.Sub for use by route
@@ -132,9 +146,9 @@ type Route struct {
 	Pattern     *reggy.ClassicMatcher
 	Valid       *flux.Push
 	Invalid     *flux.Push
-	fail        flux.ActionInterface
 	DTO         int
 	lock        *sync.RWMutex
+	fail        Failure
 }
 
 //New adds a new route to the current routes routemaker as a subroute
@@ -261,7 +275,7 @@ func (r *Route) NotSub(fnx func(r *Request, s *flux.Sub)) *flux.Sub {
 
 //RawRoute returns a route struct for a specific route path
 // which allows us to do NewRoute('{id:[/d+/]}')
-func RawRoute(path string, base *flux.Push, ts int, fail flux.ActionInterface) *Route {
+func RawRoute(path string, base *flux.Push, ts int, fail Failure) *Route {
 	if path == "" {
 		panic("route path can not be an empty string")
 	}
@@ -274,9 +288,9 @@ func RawRoute(path string, base *flux.Push, ts int, fail flux.ActionInterface) *
 		m,
 		nil,
 		flux.PushSocket(100),
-		fail,
 		ts,
 		new(sync.RWMutex),
+		fail,
 	}
 
 	//add new socket for valid routes and optional can made into payloadable
@@ -328,7 +342,7 @@ func RawRoute(path string, base *flux.Push, ts int, fail flux.ActionInterface) *
 // which allows us to do NewRoute('{id:[/d+/]}')
 //note when using long paths eg /apple/dog/back
 //this returns the root path 'apple' and not the final path 'back' route object
-func NewRoute(path string, buf int, ts int, fail flux.ActionInterface) *Route {
+func NewRoute(path string, buf int, ts int, fail Failure) *Route {
 	vs := splitPatternAndRemovePrefix(path)
 
 	if len(vs) <= 0 {
@@ -370,13 +384,13 @@ func FromRoute(r *Route, path string) *Route {
 //PatchRoute makes a route capable of creating PayloadRack route request
 //by adding a fail action which dictates if routes should be made Payload Packets
 //and returns the action for use
-func PatchRoute(r *Route) flux.ActionInterface {
+func PatchRoute(r *Route, f Failure) *Route {
 	if r.fail != nil {
-		return r.fail
+		return r
 	}
 
-	r.fail = flux.NewAction()
-	return r.fail
+	r.fail = f
+	return r
 }
 
 //InvertRoute returns a route based on a previous route rejection of a request
@@ -384,7 +398,7 @@ func PatchRoute(r *Route) flux.ActionInterface {
 //then this gets validate that rejected route)
 //the fail action can be set as nil which then uses the previous fail action from
 //the previous route
-func InvertRoute(r *Route, path string, fail flux.ActionInterface) *Route {
+func InvertRoute(r *Route, path string, fail Failure) *Route {
 	valids := flux.DoPushSocket(r.Invalid, func(v interface{}, s flux.SocketInterface) {
 		req, ok := v.(*Request)
 
