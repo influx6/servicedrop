@@ -275,7 +275,14 @@ func (r *Route) NotSub(fnx func(r *Request, s *flux.Sub)) *flux.Sub {
 
 //RawRoute returns a route struct for a specific route path
 // which allows us to do NewRoute('{id:[/d+/]}')
-func RawRoute(path string, base *flux.Push, ts int, fail Failure) *Route {
+//As far as operation is concerned any when a Route gets a path to validate
+//against it first splits into into a list '/app/2/status' => ['app',2,'status']
+//where each route within this route chain checks each first index and creates a new
+//slice excluding that first index if the first value in the first index match its own
+//rule and then pass it to the next route in its range else drops that packet into
+//its Invalid socket, also all child routes that extend from a base will all recieve
+//the parents Invalid socket so you can deal with routes that dont match in one place
+func RawRoute(path string, base *flux.Push, invalid *flux.Push, ts int, fail Failure) *Route {
 	if path == "" {
 		panic("route path can not be an empty string")
 	}
@@ -287,7 +294,7 @@ func RawRoute(path string, base *flux.Push, ts int, fail Failure) *Route {
 		m.Original,
 		m,
 		nil,
-		flux.PushSocket(100),
+		invalid,
 		ts,
 		new(sync.RWMutex),
 		fail,
@@ -357,7 +364,7 @@ func NewRoute(path string, buf int, ts int, fail Failure) *Route {
 		vs = vs[0:0]
 	}
 
-	rw := RawRoute(fs, flux.PushSocket(buf), ts, fail)
+	rw := RawRoute(fs, flux.PushSocket(buf), flux.PushSocket(buf), ts, fail)
 
 	if len(vs) > 0 {
 		rw.New(strings.Join(vs, "/"))
@@ -378,7 +385,7 @@ func FromRoute(r *Route, path string) *Route {
 		nreq := FromRequest(req, nil)
 
 		s.Emit(nreq)
-	}), r.DTO, r.fail)
+	}), r.Invalid, r.DTO, r.fail)
 }
 
 //PatchRoute makes a route capable of creating PayloadRack route request
@@ -413,7 +420,7 @@ func InvertRoute(r *Route, path string, fail Failure) *Route {
 		fail = r.fail
 	}
 
-	return RawRoute(path, valids, r.DTO, fail)
+	return RawRoute(path, valids, flux.PushSocket(r.DTO), r.DTO, fail)
 }
 
 //Serve takes a path and a payload value to be validated by the route
