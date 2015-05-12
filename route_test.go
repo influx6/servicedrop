@@ -24,13 +24,15 @@ func TestRoute(t *testing.T) {
 }
 
 func TestRouteWithPayloadPack(t *testing.T) {
-	fail := flux.NewAction()
-	r := NewRoute("apple", 2, 3, fail)
 	wait := new(sync.WaitGroup)
+	r := NewRoute("apple", 2, 3, func(fail flux.ActionInterface) {
+		if fail == nil {
+			t.Fatal("Unable to affect failure action")
+		}
 
-	fail.When(func(b interface{}, _ flux.ActionInterface) {
-		wait.Done()
-		t.Fatal("Failed to collect payload:", b)
+		fail.When(func(b interface{}, _ flux.ActionInterface) {
+			wait.Done()
+		})
 	})
 
 	r.Sub(func(r *Request, s *flux.Sub) {
@@ -59,12 +61,15 @@ func TestRouteWithPayloadPack(t *testing.T) {
 }
 
 func TestRouteWithPayloadPackFailure(t *testing.T) {
-	fail := flux.NewAction()
-	r := NewRoute("rack", 2, 3, fail)
 	wait := new(sync.WaitGroup)
+	r := NewRoute("rack", 2, 3, func(fail flux.ActionInterface) {
+		if fail == nil {
+			t.Fatal("Unable to affect failure action")
+		}
 
-	fail.When(func(b interface{}, _ flux.ActionInterface) {
-		wait.Done()
+		fail.When(func(b interface{}, _ flux.ActionInterface) {
+			wait.Done()
+		})
 	})
 
 	r.Sub(func(r *Request, s *flux.Sub) {
