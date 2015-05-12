@@ -13,6 +13,7 @@ import (
 	// "code.google.com/p/go.crypto/ssh"
 
 	"github.com/influx6/flux"
+	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -42,11 +43,12 @@ type (
 		Cmd string
 	}
 
-	//SSHSession is used to represent a current working ssh session
-	SSHSession struct {
+	//SSHClientSession is used to represent a current working ssh session
+	SSHClientSession struct {
 		*ssh.Session
 		Read  io.Reader
 		Write io.Writer
+		Erros io.Writer
 	}
 )
 
@@ -65,12 +67,20 @@ var (
 	EndSlash = regexp.MustCompile(`/+$`)
 )
 
-//NewSSHSession creates a new ssh session instance
-func NewSSHSession(s *ssh.Session, in io.Reader) *SSHSession {
+//KeyAuthenticationCallback is the type for the ssh-server key-callback function
+type KeyAuthenticationCallback func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error)
+
+//PasswordAuthenticationCallback is the type for the ssh-server password-callback function
+type PasswordAuthenticationCallback func(ssh.ConnMetadata, []byte) (*ssh.Permissions, error)
+
+//NewSSHClientSession creates a new ssh session instance
+func NewSSHClientSession(s *ssh.Session, in io.Reader) *SSHClientSession {
 	out := new(bytes.Buffer)
+	err := new(bytes.Buffer)
 	s.Stdin = in
 	s.Stdout = out
-	return &SSHSession{s, in, out}
+	s.Stderr = err
+	return &SSHClientSession{s, in, out, err}
 }
 
 //Sanitize cleans a text for secure uses
@@ -141,6 +151,35 @@ func WhenHTTPPacket(fx func(*HTTPPacket, flux.ActionInterface)) FluxCallback {
 
 		if !ok {
 			// next.Fullfill(ErrorBadHTTPPacketType)
+			return
+		}
+
+		fx(rq, next)
+	}
+}
+
+//WhenSSHClientSession returns a function that wraps an input function and check the
+//return function parameters if its a SSHSession type
+func WhenSSHClientSession(fx func(*SSHClientSession, flux.ActionInterface)) FluxCallback {
+	return func(b interface{}, next flux.ActionInterface) {
+		rq, ok := b.(*SSHClientSession)
+
+		if !ok {
+			// next.Fullfill(ErrorBadHTTPPacketType)
+			return
+		}
+
+		fx(rq, next)
+	}
+}
+
+//WhenFTPClient returns a function that wraps an input function and check the
+//return function parameters if its a sfs.Client type
+func WhenFTPClient(fx func(*sftp.Client, flux.ActionInterface)) FluxCallback {
+	return func(b interface{}, next flux.ActionInterface) {
+		rq, ok := b.(*sftp.Client)
+
+		if !ok {
 			return
 		}
 

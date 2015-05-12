@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 
 	// "code.google.com/p/go.crypto/ssh"
 	"github.com/influx6/flux"
@@ -16,6 +17,7 @@ type SSHProtocolLink struct {
 	*ProtocolLink
 	conf *ssh.ClientConfig
 	conn *ssh.Client
+	done flux.ActionInterface
 }
 
 //RSASSHProtocolLink returns a new sshProtocollink to communicate with ssh servers
@@ -25,14 +27,13 @@ func RSASSHProtocolLink(service, addr string, port int, user string, pkeyFile st
 	pbytes, err := ioutil.ReadFile(pkeyFile)
 
 	if err != nil {
-		fmt.Println("ReadError:", err)
-		panic(fmt.Sprintf("Failed to load private key file: %s", pkeyFile))
+		panic(fmt.Sprintf("ReadError %v \nFailed to load private key file: %s", err, pkeyFile))
 	}
 
 	private, err := ssh.ParsePrivateKey(pbytes)
 
 	if err != nil {
-		fmt.Println(fmt.Sprintf("ParseError:(%s):", pkeyFile), err)
+		log.Println(fmt.Sprintf("ParseError:(%s):", pkeyFile), err)
 		panic("Failed to parse private key")
 	}
 
@@ -47,18 +48,11 @@ func RSASSHProtocolLink(service, addr string, port int, user string, pkeyFile st
 
 	desc := NewDescriptor("ssh", service, addr, port, "0", "ssh")
 
-	client, err := ssh.Dial("tcp", desc.Host(), config)
-
-	if err != nil {
-		panic(fmt.Sprintf("client creation received error for: %s", desc.Host()))
-	}
-
-	// desc.Misc
-
 	nsh := &SSHProtocolLink{
 		NewProtocolLink(desc),
 		config,
-		client,
+		nil,
+		flux.NewAction(),
 	}
 
 	return nsh
@@ -81,19 +75,11 @@ func PasswordSSHProtocolLink(service, addr string, port int, user string, passwo
 	//should we store the password?
 	// desc.Misc["password"]=password
 
-	// client, err := ssh.Dial("tcp", desc.Host(), config)
-	//
-	// if err != nil {
-	// 	panic(fmt.Sprintf("client creation received error for: %s", desc.Host()))
-	// }
-
-	// desc.Misc
-
 	nsh := &SSHProtocolLink{
 		NewProtocolLink(desc),
 		config,
-		// client,
 		nil,
+		flux.NewAction(),
 	}
 
 	return nsh
@@ -112,15 +98,14 @@ func (h *SSHProtocolLink) Drop() error {
 func (h *SSHProtocolLink) Dial() error {
 	client, err := ssh.Dial("tcp", h.Descriptor().Host(), h.conf)
 
-	if err != nil {
-		return err
-		// panic(fmt.Sprintf("client creation received error for: %s", desc.Host()))
-	}
-
 	h.conn = client
 
-	return nil
+	if err != nil {
+		fmt.Println(fmt.Sprintf("client creation received error for: %s %v", h.Descriptor().Host(), err))
+		// return err
+	}
 
+	return err
 }
 
 //FS creates a ftp client on the remote connection and allows file base op
@@ -153,41 +138,56 @@ func (h *SSHProtocolLink) FS() flux.ActionStackInterface {
 }
 
 //Command run a given command from the remote host through the ssh.Client connection
-func (h *SSHProtocolLink) Command(cmd string) flux.ActionInterface {
-	return nil
+func (h *SSHProtocolLink) Command(cmd string) flux.ActionStackInterface {
+	rq := h.Request("", nil)
+	dn := rq.Done()
+	ch := flux.NewActDepend(dn, 2)
+
+	ch.Then(WhenSSHClientSession(func(s *SSHClientSession, next flux.ActionInterface) {
+		s.Run(cmd)
+		next.Fullfill(s)
+	}))
+
+	avs := flux.UnwrapActDependWrap(dn)
+	avs.MixLast(0, ch)
+
+	room := flux.NewActionStackBy(ch, rq.Error())
+
+	return room
 }
 
 //Request is the base level method upon which all protocolink requests are handled
-//for the sake of
+//for the sake of being a valid protcollink it implements the method signature
+// (string,io.Reader) but for flexibilty string
 func (h *SSHProtocolLink) Request(path string, body io.Reader) flux.ActionStackInterface {
 
 	req := flux.NewAction()
 	err := flux.NewAction()
-	st := flux.NewActionStackBy(req, err)
+	act := req.Chain(2)
+	st := flux.NewActionStackBy(act, err)
 
 	if h.conn == nil {
 		st.Complete(ErrorNoConnection)
 		return st
 	}
 
-	act := req.Chain(2)
-
 	act.OverrideBefore(1, func(b interface{}, next flux.ActionInterface) {
-		se, ok := b.(*SSHSession)
+		se, ok := b.(*SSHClientSession)
 
 		if !ok {
 			return
 		}
 
 		se.Close()
+		next.Fullfill(b)
 	})
 
-	session, er := h.conn.NewSession()
+	session, erro := h.conn.NewSession()
 
-	if err != nil {
-		st.Complete(er)
+	if erro != nil {
+		st.Complete(erro)
 	} else {
-		st.Complete(NewSSHSession(session, body))
+		st.Complete(NewSSHClientSession(session, body))
 	}
 
 	return st

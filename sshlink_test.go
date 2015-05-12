@@ -1,33 +1,68 @@
 package servicedrop
 
 import (
+	"sync"
 	"testing"
-	"time"
-	// "code.google.com/p/go.crypto/ssh"
+
+	"github.com/influx6/flux"
 )
 
-func TestRSALink(t *testing.T) {
-	rs := RSASSHProtocolLink("io", "192.30.252.0", 22, "influx6", "/home/flux/Lab/ssh/github")
-	t.Log("rs:", rs)
+// "code.google.com/p/go.crypto/ssh"
 
-	go rs.Dial()
-
-	<-time.After(time.Duration(10) * time.Millisecond)
-
-	t.Log("killing connection for:", rs.Descriptor().Host())
-	rs.Drop()
-}
+// func TestRSALink(t *testing.T) {
+// 	wc := new(sync.WaitGroup)
+//
+// 	rs := RSASSHProtocolLink("io", "192.30.252.0", 22, "influx6", "/home/thelogos/Lab/ssh/github")
+//
+// 	err := rs.Dial()
+//
+// 	if err != nil {
+// 		t.Fatal("unable to create ssh server")
+// 	}
+//
+// 	wc.Add(1)
+//
+// 	cmd := rs.Command("ls -a")
+//
+// 	cmd.Done().Then(func(b interface{}, next flux.ActionInterface) {
+// 		wc.Done()
+// 		next.Fullfill(b)
+// 	})
+//
+// 	cmd.Error().When(func(b interface{}, next flux.ActionInterface) {
+// 		wc.Done()
+// 		next.Fullfill(b)
+// 	})
+//
+// 	wc.Wait()
+// 	rs.Drop()
+// }
 
 func TestPasswordLink(t *testing.T) {
 
-	rs := PasswordSSHProtocolLink("io", "192.30.252.0", 22, "influx6", "Loc*20FOrm3")
+	wc := new(sync.WaitGroup)
+	rs := PasswordSSHProtocolLink("io", "localhost", 22, "thelogos", "Loc*20Form3")
 
-	t.Log("rs:", rs)
+	err := rs.Dial()
 
-	go rs.Dial()
+	if err != nil {
+		t.Fatal("unable to create ssh server")
+	}
 
-	<-time.After(time.Duration(10) * time.Millisecond)
+	wc.Add(1)
 
-	t.Log("killing connection for:", rs.Descriptor().Host())
+	cmd := rs.Command("ls -a")
+
+	cmd.Done().Then(func(b interface{}, next flux.ActionInterface) {
+		wc.Done()
+		next.Fullfill(b)
+	})
+
+	cmd.Error().When(func(b interface{}, next flux.ActionInterface) {
+		wc.Done()
+		next.Fullfill(b)
+	})
+
+	wc.Wait()
 	rs.Drop()
 }

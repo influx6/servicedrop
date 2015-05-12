@@ -1,6 +1,7 @@
 package servicedrop
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -126,36 +127,100 @@ func FromRequest(r *Request, param interface{}) *Request {
 //Route defines a single route path
 type Route struct {
 	flux.SocketInterface
-	childRoutes *RouteMaker
+	childRoutes map[string]*Route
 	Path        string
 	Pattern     *reggy.ClassicMatcher
 	Valid       *flux.Push
 	Invalid     *flux.Push
 	fail        flux.ActionInterface
 	DTO         int
+	lock        *sync.RWMutex
 }
 
 //New adds a new route to the current routes routemaker as a subroute
 //the path string can only be a single route not a multiple
-//So 'io' not '/io/sucker/{f:[/w]}'
+//So '/io/sucker/{f:[/w]}' will be broken down and each piece will be created
+//according to its tree
 //Note: '/' returns the route itself
 func (r *Route) New(path string) {
-	r.childRoutes.Combine("/", path)
+	if strings.EqualFold(path, "/") || path == "" {
+		return
+	}
+
+	vs := splitPatternAndRemovePrefix(path)
+
+	if len(vs) <= 0 {
+		return
+	}
+
+	fs := vs[0]
+
+	if len(vs) > 1 {
+		vs = vs[1:]
+	} else {
+		vs = vs[0:0]
+	}
+
+	id, _, _ := reggy.YankSpecial(fs)
+
+	r.lock.RLock()
+	d, ok := r.childRoutes[id]
+	r.lock.RUnlock()
+
+	if !ok {
+		rs := FromRoute(r, fs)
+
+		r.lock.Lock()
+		r.childRoutes[rs.Path] = rs
+		r.lock.Unlock()
+
+		rs.New(strings.Join(vs, "/"))
+		return
+	}
+
+	d.New(strings.Join(vs, "/"))
 }
 
 //Children returns the total child routes possed by these route
 //r.childRoutes.Size() - 1 : because the child route is set to "/"
 func (r *Route) Children() int {
-	return r.childRoutes.Size() - 1
+	return len(r.childRoutes)
 }
 
 //Child checks the route routemaker if the specific childroute exits
 func (r *Route) Child(path string) *Route {
-	id, _, _ := reggy.YankSpecial(path)
-	return r.childRoutes.Route(id)
+	if strings.EqualFold(path, "/") || path == "" {
+		return r
+	}
+
+	vs := splitPatternAndRemovePrefix(path)
+
+	if len(vs) <= 0 {
+		return nil
+	}
+
+	fs := vs[0]
+
+	if len(vs) > 1 {
+		vs = vs[1:]
+	} else {
+		vs = vs[0:0]
+	}
+
+	id, _, _ := reggy.YankSpecial(fs)
+
+	r.lock.RLock()
+	d, ok := r.childRoutes[id]
+	r.lock.RUnlock()
+
+	if !ok {
+		return nil
+	}
+
+	return d.Child(strings.Join(vs, "/"))
 }
 
-//Sub decorates the Route.Valid.Subscribe with a more request friend closure caller
+//Sub decorates the Route.Valid.Subscribe with a more request friendly closure caller
 func (r *Route) Sub(fnx func(r *Request, s *flux.Sub)) *flux.Sub {
 	return r.Valid.Subscribe(func(v interface{}, fs *flux.Sub) {
 		req, ok := v.(*Request)
@@ -197,20 +262,22 @@ func (r *Route) NotSub(fnx func(r *Request, s *flux.Sub)) *flux.Sub {
 //RawRoute returns a route struct for a specific route path
 // which allows us to do NewRoute('{id:[/d+/]}')
 func RawRoute(path string, base *flux.Push, ts int, fail flux.ActionInterface) *Route {
+	if path == "" {
+		panic("route path can not be an empty string")
+	}
+
 	m := reggy.GenerateClassicMatcher(path)
 	r := &Route{
 		base,
-		nil,
+		make(map[string]*Route),
 		m.Original,
 		m,
 		nil,
 		flux.PushSocket(100),
 		fail,
 		ts,
+		new(sync.RWMutex),
 	}
-
-	//add route maker for child routes
-	r.childRoutes = RootRouteMaker(r, r.fail)
 
 	//add new socket for valid routes and optional can made into payloadable
 	r.Valid = flux.DoPushSocket(r, func(v interface{}, s flux.SocketInterface) {
@@ -259,8 +326,30 @@ func RawRoute(path string, base *flux.Push, ts int, fail flux.ActionInterface) *
 
 //NewRoute returns a route struct for a specific route path
 // which allows us to do NewRoute('{id:[/d+/]}')
+//note when using long paths eg /apple/dog/back
+//this returns the root path 'apple' and not the final path 'back' route object
 func NewRoute(path string, buf int, ts int, fail flux.ActionInterface) *Route {
-	return RawRoute(path, flux.PushSocket(buf), ts, fail)
+	vs := splitPatternAndRemovePrefix(path)
+
+	if len(vs) <= 0 {
+		panic(fmt.Sprintf("path after split is is %v not valid", vs))
+	}
+
+	fs := vs[0]
+
+	if len(vs) > 1 {
+		vs = vs[1:]
+	} else {
+		vs = vs[0:0]
+	}
+
+	rw := RawRoute(fs, flux.PushSocket(buf), ts, fail)
+
+	if len(vs) > 0 {
+		rw.New(strings.Join(vs, "/"))
+	}
+
+	return rw
 }
 
 //FromRoute returns a route based on a previous route
@@ -327,93 +416,4 @@ func (r *Route) Serve(path string, b interface{}, timeout int) {
 //socket if invalid
 func (r *Route) ServeRequest(rw *Request) {
 	r.Emit(rw)
-}
-
-//RouteMaker takes a long string of route paths and creates corresponding routes for each
-type RouteMaker struct {
-	routes  map[string]*Route
-	timeout int
-	fail    flux.ActionInterface
-	lock    *sync.RWMutex
-}
-
-//Size returns the total number of children routes
-func (r *RouteMaker) Size() int {
-	r.lock.RLock()
-	l := len(r.routes)
-	r.lock.RUnlock()
-	return l
-}
-
-//Route retrieves the route with the id
-func (r *RouteMaker) Route(m string) *Route {
-	r.lock.RLock()
-	w := r.routes[m]
-	r.lock.RUnlock()
-	return w
-}
-
-//Combine adds a route path into the route,but will excluse if that route
-//already exists
-func (r *RouteMaker) Combine(m, n string) {
-	w, ok := r.routes[m]
-
-	if !ok {
-		return
-	}
-
-	id, _, _ := reggy.YankSpecial(trimSlash(n))
-
-	_, ok = r.routes[id]
-
-	if ok {
-		return
-	}
-
-	r.lock.Lock()
-	r.routes[id] = FromRoute(w, n)
-	r.lock.Unlock()
-}
-
-func makeRoute(route string, rm *RouteMaker, buf, ts int, fail flux.ActionInterface) {
-	var last *Route
-	parts := splitPatternAndRemovePrefix(route)
-
-	for _, piece := range parts {
-		if last == nil {
-			last = NewRoute(piece, buf, ts, fail)
-		} else {
-			tmp := last
-			last = FromRoute(tmp, piece)
-		}
-
-		rm.routes[last.Path] = last
-	}
-}
-
-//NewRouteMaker returns a route maker that generates standand
-//routes without the payload patch
-func NewRouteMaker(route string, buf, ts int, fail flux.ActionInterface) *RouteMaker {
-	store := make(map[string]*Route)
-
-	rv := &RouteMaker{
-		store,
-		-1,
-		fail,
-		new(sync.RWMutex),
-	}
-
-	makeRoute(route, rv, buf, ts, fail)
-	return rv
-}
-
-//RootRouteMaker returns a route maker with a single route in its map
-//useful for when routes need internal routemakers for organization
-func RootRouteMaker(root *Route, fail flux.ActionInterface) *RouteMaker {
-	return &RouteMaker{
-		map[string]*Route{"/": root},
-		-1,
-		fail,
-		new(sync.RWMutex),
-	}
 }
