@@ -10,6 +10,18 @@ import (
 	"github.com/influx6/reggy"
 )
 
+//RouteConfig handles the initialization of protocols route
+type RouteConfig struct {
+	buffer  int
+	timeout int
+	fail    Failure
+}
+
+//NewRouteConfig returns a routeconfig with its details
+func NewRouteConfig(buf, to int, fail Failure) *RouteConfig {
+	return &RouteConfig{buf, to, fail}
+}
+
 //Failure is a function that types behaviour to be done when using Packets and
 //you want to attach a reaction to when a packet has failed usually its timeout
 type Failure func(flux.ActionInterface)

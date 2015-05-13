@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	// "github.com/pkg/sftp"
+	"github.com/influx6/flux"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -17,10 +18,16 @@ type (
 		servers []*ssh.ServerConn
 		// sessions map[net.Addr]*Session
 	}
+
+	//ChannelPayload defines a payload containing the channel and request of the server
+	ChannelPayload struct {
+		Chan ssh.Channel
+		Req  *ssh.Request
+	}
 )
 
 //RSASSHProtocol creates a ssh-server that handles ssh-connections
-func RSASSHProtocol(service, addr string, port int, rsaFile string, auth KeyAuthenticationCallback) *SSHProtocol {
+func RSASSHProtocol(rc *RouteConfig, service, addr string, port int, rsaFile string, auth KeyAuthenticationCallback) *SSHProtocol {
 	pbytes, err := ioutil.ReadFile(rsaFile)
 
 	if err != nil {
@@ -42,14 +49,14 @@ func RSASSHProtocol(service, addr string, port int, rsaFile string, auth KeyAuth
 	conf.AddHostKey(private)
 
 	return &SSHProtocol{
-		NewProtocol(desc),
+		BaseProtocol(desc, rc),
 		conf,
 		make([]*ssh.ServerConn, 0),
 	}
 }
 
 //PasswordSSHProtocol creates a ssh-server that handles ssh-connections
-func PasswordSSHProtocol(service, addr string, port int, rsaFile string, auth PasswordAuthenticationCallback) *SSHProtocol {
+func PasswordSSHProtocol(rc *RouteConfig, service, addr string, port int, rsaFile string, auth PasswordAuthenticationCallback) *SSHProtocol {
 	pbytes, err := ioutil.ReadFile(rsaFile)
 
 	if err != nil {
@@ -70,11 +77,22 @@ func PasswordSSHProtocol(service, addr string, port int, rsaFile string, auth Pa
 
 	conf.AddHostKey(private)
 
-	return &SSHProtocol{
-		NewProtocol(desc),
+	sd := &SSHProtocol{
+		BaseProtocol(desc, rc),
 		conf,
 		make([]*ssh.ServerConn, 0),
 	}
+
+	sd.Routes().New("session/exec")
+	sd.Routes().New("session/pty")
+
+	sd.Routes().NotSub(func(r *Request, s *flux.Sub) {
+		log.Printf("req: %+v %+v %+v", r.Paths, r.Payload, r)
+		// py := r.Payload
+
+	})
+
+	return sd
 }
 
 //Dial creates and connects the ssh server with the given details from the ProtocolDescription
@@ -102,7 +120,7 @@ func (s *SSHProtocol) Dial() error {
 			continue
 		}
 
-		log.Printf("Received new connection %v %v", conn.RemoteAddr(), conn.ClientVersion())
+		log.Printf("Received new connection %+v %+v", conn.RemoteAddr(), conn.ClientVersion())
 
 		s.servers = append(s.servers, conn)
 
@@ -114,10 +132,35 @@ func (s *SSHProtocol) Dial() error {
 
 func (s *SSHProtocol) handleChannel(sc <-chan ssh.NewChannel) {
 	for curChan := range sc {
-		switch curChan.ChannelType() {
-		case "session":
-		case "":
+		stype := curChan.ChannelType()
+		rw := s.Routes().Child(stype)
+
+		log.Println("Connection Type:", stype, rw)
+
+		if rw == nil {
+			curChan.Reject(ssh.UnknownChannelType, "unknown not supported!")
+			continue
 		}
+
+		ch, reqs, err := curChan.Accept()
+
+		if err != nil {
+			log.Println("Error accepting channel: ", err)
+			continue
+		}
+
+		go func(in <-chan *ssh.Request) {
+			for greq := range in {
+				reqtype := greq.Type
+				path := fmt.Sprintf("%s/%s", stype, reqtype)
+				log.Println("delivery reqs for:", path, greq)
+				s.Routes().Serve(path, &ChannelPayload{
+					ch,
+					greq,
+				}, -1)
+			}
+		}(reqs)
+
 	}
 }
 

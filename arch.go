@@ -86,12 +86,29 @@ func NewProtocolLink(desc *ProtocolDescriptor) *ProtocolLink {
 	return &ProtocolLink{NewBase(desc)}
 }
 
+//ProtocolInterface represent the protocl interface member method rules
+type ProtocolInterface interface {
+	Routes() *Route
+	Descriptor() *ProtocolDescriptor
+}
+
 //Protocol defines the basic structure for specific service type
 type Protocol struct {
 	*Base
+	conf   *RouteConfig
+	routes *Route
 }
 
-//NewProtocol returns a new protocol instance
-func NewProtocol(desc *ProtocolDescriptor) *Protocol {
-	return &Protocol{NewBase(desc)}
+//Routes represent the internal router used by protocols
+func (p *Protocol) Routes() *Route {
+	return p.routes
+}
+
+//BaseProtocol returns a new protocol instance
+func BaseProtocol(desc *ProtocolDescriptor, rc *RouteConfig) *Protocol {
+	return &Protocol{
+		NewBase(desc),
+		rc,
+		NewRoute(desc.Service, rc.buffer, rc.timeout, rc.fail),
+	}
 }
