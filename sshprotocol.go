@@ -48,11 +48,15 @@ func RSASSHProtocol(rc *RouteConfig, service, addr string, port int, rsaFile str
 
 	conf.AddHostKey(private)
 
-	return &SSHProtocol{
+	sd := &SSHProtocol{
 		BaseProtocol(desc, rc),
 		conf,
 		make([]*ssh.ServerConn, 0),
 	}
+
+	setupRoutes(sd)
+
+	return sd
 }
 
 //PasswordSSHProtocol creates a ssh-server that handles ssh-connections
@@ -83,8 +87,7 @@ func PasswordSSHProtocol(rc *RouteConfig, service, addr string, port int, rsaFil
 		make([]*ssh.ServerConn, 0),
 	}
 
-	sd.Routes().New("session/exec")
-	sd.Routes().New("session/pty")
+	setupRoutes(sd)
 
 	sd.Routes().NotSub(func(r *Request, s *flux.Sub) {
 		log.Printf("req: %+v %+v %+v", r.Paths, r.Payload, r)
@@ -93,6 +96,13 @@ func PasswordSSHProtocol(rc *RouteConfig, service, addr string, port int, rsaFil
 	})
 
 	return sd
+}
+
+func setupRoutes(s *SSHProtocol) {
+	s.Routes().New("session/exec")
+	s.Routes().New("session/pty-req")
+	s.Routes().New("session/env")
+	s.Routes().New("session/shell")
 }
 
 //Dial creates and connects the ssh server with the given details from the ProtocolDescription
@@ -120,8 +130,6 @@ func (s *SSHProtocol) Dial() error {
 			continue
 		}
 
-		log.Printf("Received new connection %+v %+v", conn.RemoteAddr(), conn.ClientVersion())
-
 		s.servers = append(s.servers, conn)
 
 		go s.handleRequest(req)
@@ -134,8 +142,6 @@ func (s *SSHProtocol) handleChannel(sc <-chan ssh.NewChannel) {
 	for curChan := range sc {
 		stype := curChan.ChannelType()
 		rw := s.Routes().Child(stype)
-
-		log.Println("Connection Type:", stype, rw)
 
 		if rw == nil {
 			curChan.Reject(ssh.UnknownChannelType, "unknown not supported!")
@@ -152,8 +158,8 @@ func (s *SSHProtocol) handleChannel(sc <-chan ssh.NewChannel) {
 		go func(in <-chan *ssh.Request) {
 			for greq := range in {
 				reqtype := greq.Type
-				path := fmt.Sprintf("%s/%s", stype, reqtype)
-				log.Println("delivery reqs for:", path, greq)
+				path := fmt.Sprintf("%s/%s/%s", s.Descriptor().Service, stype, reqtype)
+				log.Println("grab:", path)
 				s.Routes().Serve(path, &ChannelPayload{
 					ch,
 					greq,

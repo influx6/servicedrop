@@ -397,7 +397,7 @@ func FromRoute(r *Route, path string) *Route {
 		nreq := FromRequest(req, nil)
 
 		s.Emit(nreq)
-	}), r.Invalid, r.DTO, r.fail)
+	}), flux.PushSocket(r.DTO), r.DTO, r.fail)
 }
 
 //PatchRoute makes a route capable of creating PayloadRack route request
