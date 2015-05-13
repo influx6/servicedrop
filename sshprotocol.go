@@ -159,7 +159,6 @@ func (s *SSHProtocol) handleChannel(sc <-chan ssh.NewChannel) {
 			for greq := range in {
 				reqtype := greq.Type
 				path := fmt.Sprintf("%s/%s/%s", s.Descriptor().Service, stype, reqtype)
-				log.Println("grab:", path)
 				s.Routes().Serve(path, &ChannelPayload{
 					ch,
 					greq,
