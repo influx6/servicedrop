@@ -90,13 +90,16 @@ func NewProtocolLink(desc *ProtocolDescriptor) *ProtocolLink {
 type ProtocolInterface interface {
 	Routes() *Route
 	Descriptor() *ProtocolDescriptor
+	Sessions() SessionManagerInterface
 }
 
 //Protocol defines the basic structure for specific service type
 type Protocol struct {
 	*Base
-	conf   *RouteConfig
-	routes *Route
+	sessions      *SessionManager
+	ProtoclClosed chan struct{}
+	conf          *RouteConfig
+	routes        *Route
 }
 
 //Routes represent the internal router used by protocols
@@ -104,10 +107,17 @@ func (p *Protocol) Routes() *Route {
 	return p.routes
 }
 
+//Sessions returns the sessionmanager for this protocol
+func (p *Protocol) Sessions() SessionManagerInterface {
+	return p.sessions
+}
+
 //BaseProtocol returns a new protocol instance
 func BaseProtocol(desc *ProtocolDescriptor, rc *RouteConfig) *Protocol {
 	return &Protocol{
 		NewBase(desc),
+		NewSessionManager(),
+		make(chan struct{}),
 		rc,
 		NewRoute(desc.Service, rc.buffer, rc.timeout, rc.fail),
 	}

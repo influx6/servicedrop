@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	// "code.google.com/p/go.crypto/ssh"
 
@@ -50,6 +51,30 @@ type (
 		Write io.Writer
 		Erros io.Writer
 	}
+
+	//SessionManagerInterface represent the member function rules for a session manager
+	SessionManagerInterface interface {
+		AddSession(net.Addr, Session)
+		DestroySession(net.Addr)
+		GetSession(net.Addr) Session
+	}
+
+	//SessionManager is used to managed session data for any service using the
+	//net.Addr as a key
+	SessionManager struct {
+		sessions *flux.SecureMap
+	}
+
+	//Session is a map that can contain the data needed for use
+	Session interface {
+		Addr() net.Addr
+		User() string
+		Pass() interface{}
+		Start() time.Time
+		End() time.Time
+		Reader() io.ReadCloser
+		Close()
+	}
 )
 
 var (
@@ -67,11 +92,57 @@ var (
 	EndSlash = regexp.MustCompile(`/+$`)
 )
 
+//ConnectionProc is the type used by the proxy-ssh-protocol for behaviour
+// type ConnectionProc func()
+
 //KeyAuthenticationCallback is the type for the ssh-server key-callback function
-type KeyAuthenticationCallback func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error)
+type KeyAuthenticationCallback func(ProtocolInterface, ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error)
 
 //PasswordAuthenticationCallback is the type for the ssh-server password-callback function
-type PasswordAuthenticationCallback func(ssh.ConnMetadata, []byte) (*ssh.Permissions, error)
+type PasswordAuthenticationCallback func(ProtocolInterface, ssh.ConnMetadata, []byte) (*ssh.Permissions, error)
+
+//KeyAuth represents a PublicCallback type
+type KeyAuth func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error)
+
+//PassAuth represents a PasswordCallback type
+type PassAuth func(ssh.ConnMetadata, []byte) (*ssh.Permissions, error)
+
+//PasswordAuthenticationWrap wraps a PasswordAuthenticationCallback for use
+func PasswordAuthenticationWrap(auth PasswordAuthenticationCallback, p ProtocolInterface) PassAuth {
+	return func(meta ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
+		return auth(p, meta, pass)
+	}
+}
+
+//KeyAuthenticationWrap wraps a KeyAuthenticationCallback for use
+func KeyAuthenticationWrap(auth KeyAuthenticationCallback, p ProtocolInterface) KeyAuth {
+	return func(meta ssh.ConnMetadata, pass ssh.PublicKey) (*ssh.Permissions, error) {
+		return auth(p, meta, pass)
+	}
+}
+
+//NewSessionManager allows management of sessions(ambiguous up to you to define that)
+func NewSessionManager() *SessionManager {
+	return &SessionManager{flux.NewSecureMap()}
+}
+
+//GetSession retrieves a session with the net.Addr
+func (s *SessionManager) GetSession(addr net.Addr) Session {
+	sm, _ := s.sessions.Get(addr).(Session)
+	return sm
+}
+
+//AddSession adds a new settion with the address
+func (s *SessionManager) AddSession(addr net.Addr, sm Session) {
+	s.sessions.Set(addr, sm)
+}
+
+//DestroySession deletes a session and its content from the map
+func (s *SessionManager) DestroySession(addr net.Addr) {
+	sh := s.GetSession(addr)
+	defer sh.Close()
+	s.sessions.Remove(addr)
+}
 
 //NewSSHClientSession creates a new ssh session instance
 func NewSSHClientSession(s *ssh.Session, in io.Reader) *SSHClientSession {
@@ -113,8 +184,13 @@ func UDPPacketFrom(u *UDPPacket, data []byte, addr *net.UDPAddr) *UDPPacket {
 
 //NewHTTPPacket returns a new http packet
 func NewHTTPPacket(res *http.Response, req *http.Request, e error) *HTTPPacket {
-	defer res.Body.Close()
-	bo, err := ioutil.ReadAll(res.Body)
+	var bo []byte
+	var err error
+
+	if res != nil && res.Body != nil {
+		defer res.Body.Close()
+		bo, err = ioutil.ReadAll(res.Body)
+	}
 
 	return &HTTPPacket{
 		res,

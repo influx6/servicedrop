@@ -9,7 +9,7 @@ import (
 
 func TestHTTPProLink(t *testing.T) {
 
-	link := NewHTTPLink("", "127.0.0.1", 80)
+	link := NewHTTPLink("", "127.0.0.1", 8080)
 
 	if link == nil {
 		t.Fatal("new link not created", link)

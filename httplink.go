@@ -3,6 +3,7 @@ package servicedrop
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/influx6/flux"
@@ -60,6 +61,8 @@ func (h *HTTPProtocolLink) Request(path string, body io.Reader) flux.ActionStack
 		rq.Header.Set("X-Service-Request", h.Descriptor().Service)
 
 		res, err := h.client.Do(rq)
+
+		log.Println("creating res:", res, err)
 
 		pck := NewHTTPPacket(res, rq, err)
 

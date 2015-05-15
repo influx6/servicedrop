@@ -36,25 +36,28 @@ type PayloadRack struct {
 	timeout time.Duration
 	fail    flux.ActionInterface
 	done    flux.ActionInterface
+	once    *sync.Once
 }
 
 //Load sets the payloadrack payload
 func (p *PayloadRack) Load(b interface{}) {
-	go func() {
-		if p.timeout <= -1 {
-			go p.collect()
-		} else {
-			go func() {
-				<-time.After(p.timeout)
-				payload, ok := <-p.payload
-				if ok {
-					p.fail.Fullfill(payload)
-				}
-			}()
-		}
-		p.payload <- b
-		close(p.payload)
-	}()
+	p.once.Do(func() {
+		go func() {
+			if p.timeout <= -1 {
+				go p.collect()
+			} else {
+				go func() {
+					<-time.After(p.timeout)
+					payload, ok := <-p.payload
+					if ok {
+						p.fail.Fullfill(payload)
+					}
+				}()
+			}
+			p.payload <- b
+			close(p.payload)
+		}()
+	})
 }
 
 //collect retrieves the data from the channel and fullfills the done action
@@ -86,6 +89,7 @@ func NewPayloadRack(timeout int, fx Failure) *PayloadRack {
 		time.Duration(timeout) * time.Millisecond,
 		flux.NewAction(),
 		flux.NewAction(),
+		new(sync.Once),
 	}
 
 	if fx != nil {
