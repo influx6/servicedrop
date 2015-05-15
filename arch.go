@@ -91,15 +91,27 @@ type ProtocolInterface interface {
 	Routes() *Route
 	Descriptor() *ProtocolDescriptor
 	Sessions() SessionManagerInterface
+	Drop() error
+	Dial() error
 }
 
 //Protocol defines the basic structure for specific service type
 type Protocol struct {
 	*Base
-	sessions      *SessionManager
-	ProtoclClosed chan struct{}
-	conf          *RouteConfig
-	routes        *Route
+	sessions       *SessionManager
+	ProtocolClosed chan struct{}
+	conf           *RouteConfig
+	routes         *Route
+}
+
+//Drop drops the protocol connection
+func (p *Protocol) Drop() error {
+	return nil
+}
+
+//Dial connects the protocol connection
+func (p *Protocol) Dial() error {
+	return nil
 }
 
 //Routes represent the internal router used by protocols

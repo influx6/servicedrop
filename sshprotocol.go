@@ -26,6 +26,7 @@ type (
 		NetworkClose flux.Pipe
 		conf         *ssh.ServerConfig
 		servers      []*ssh.ServerConn
+		tcpCon       net.Listener
 	}
 
 	//SSHProxyProtocol handles the sshprotcol created and proxies all its connection
@@ -191,6 +192,7 @@ func RSASSHProtocol(rc *RouteConfig, service, addr string, port int, rsaFile str
 		flux.PushSocket(0),
 		conf,
 		make([]*ssh.ServerConn, 0),
+		nil,
 	}
 
 	setupRoutes(sd)
@@ -226,6 +228,7 @@ func PasswordSSHProtocol(rc *RouteConfig, service, addr string, port int, rsaFil
 		flux.PushSocket(0),
 		conf,
 		make([]*ssh.ServerConn, 0),
+		nil,
 	}
 
 	setupRoutes(sd)
@@ -516,8 +519,14 @@ func (s *SSHProtocol) Dial() error {
 		// return err
 	}
 
-	defer tcpcon.Close()
+	s.tcpCon = tcpcon
 
+	defer tcpcon.Close()
+	defer func() {
+		s.tcpCon = nil
+	}()
+
+loopmaker:
 	for {
 		con, err := tcpcon.Accept()
 
@@ -526,11 +535,16 @@ func (s *SSHProtocol) Dial() error {
 			continue
 		}
 
+		go func() {
+			<-s.ProtocolClosed
+			con.Close()
+		}()
+
 		conn, schan, req, err := ssh.NewServerConn(con, s.conf)
 
 		if err != nil {
 			log.Println(fmt.Sprintf("Unable to accept connection: -> %v", err))
-			continue
+			continue loopmaker
 		}
 
 		// defer conn.Close()
@@ -541,6 +555,17 @@ func (s *SSHProtocol) Dial() error {
 		go s.HandleChannel(schan, conn)
 
 	}
+}
+
+//Drop ends the connection used by this service
+func (s *SSHProtocol) Drop() error {
+	close(s.ProtocolClosed)
+
+	if s.tcpCon != nil {
+		s.tcpCon.Close()
+	}
+
+	return nil
 }
 
 //HandleChannel manages the handling of a ConnectionChannel requests channels
@@ -563,7 +588,7 @@ func (s *SSHProtocol) HandleChannel(sc <-chan ssh.NewChannel, d *ssh.ServerConn)
 
 		ch, reqs, err := curChan.Accept()
 
-		s.NetworkOpen.Emit(&ChannelNetwork{d, ch, curChan, closer, s.ProtoclClosed})
+		s.NetworkOpen.Emit(&ChannelNetwork{d, ch, curChan, closer, s.ProtocolClosed})
 
 		if err != nil {
 			log.Println("Error accepting channel: ", err)
