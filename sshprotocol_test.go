@@ -19,7 +19,7 @@ func TestSSHProxyProtocolCreation(t *testing.T) {
 
 	var serv *SSHProtocol
 
-	serv = PasswordSSHProtocol(conf, "io", "localhost", 2022, "/home/thelogos/.ssh/id_rsa", PasswordAuthenticationWrap(func(p ProtocolInterface, c ssh.ConnMetadata, b []byte) (*ssh.Permissions, error) {
+	serv = PasswordSSHProtocol(conf, "io", "localhost", 2022, "./perm/id_rsa", PasswordAuthenticationWrap(func(p ProtocolInterface, c ssh.ConnMetadata, b []byte) (*ssh.Permissions, error) {
 		log.Println("Authenticate: ...", p, c, b)
 		return nil, nil
 	}, serv))
@@ -42,7 +42,7 @@ func TestSSHProtocol(t *testing.T) {
 
 	var serv *SSHProtocol
 
-	serv = PasswordSSHProtocol(conf, "io", "localhost", 2022, "/home/thelogos/.ssh/id_rsa", PasswordAuthenticationWrap(func(p ProtocolInterface, c ssh.ConnMetadata, b []byte) (*ssh.Permissions, error) {
+	serv = PasswordSSHProtocol(conf, "io", "localhost", 2022, "./perm/id_rsa", PasswordAuthenticationWrap(func(p ProtocolInterface, c ssh.ConnMetadata, b []byte) (*ssh.Permissions, error) {
 		log.Println("Authenticate: ...", p, c, b)
 		return nil, nil
 	}, serv))

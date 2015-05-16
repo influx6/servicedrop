@@ -10,7 +10,7 @@ import (
 func TestRSALink(t *testing.T) {
 	wc := new(sync.WaitGroup)
 
-	rs := RSASSHProtocolLink("io", "127.0.0.1", 22, "influx6", "/home/thelogos/.ssh/id_rsa")
+	rs := RSASSHProtocolLink("io", "127.0.0.1", 22, "influx6", "./perm/id_rsa")
 
 	err := rs.Dial()
 
@@ -39,7 +39,7 @@ func TestRSALink(t *testing.T) {
 func TestPasswordLink(t *testing.T) {
 
 	wc := new(sync.WaitGroup)
-	rs := PasswordSSHProtocolLink("io", "localhost", 22, "thelogos", "Locco")
+	rs := PasswordSSHProtocolLink("io", "localhost", 22, "root", "root")
 
 	err := rs.Dial()
 
