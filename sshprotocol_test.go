@@ -2,6 +2,7 @@ package servicedrop
 
 import (
 	"log"
+	"os"
 	"testing"
 	"time"
 
@@ -66,8 +67,9 @@ func TestSSHProtocol(t *testing.T) {
 	})
 
 	go func() {
-		<-time.After(time.Duration(6000) * time.Millisecond)
-		serv.Drop()
+		<-time.After(time.Duration(60) * time.Millisecond)
+		// serv.Drop()
+		os.Exit(0)
 	}()
 
 	serv.Dial()

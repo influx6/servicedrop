@@ -15,7 +15,7 @@ func TestRSALink(t *testing.T) {
 	err := rs.Dial()
 
 	if err != nil {
-		t.Fatal("unable to dial ssh server")
+		t.Fatal("unable to dial ssh server", err)
 	}
 
 	wc.Add(1)
@@ -44,7 +44,7 @@ func TestPasswordLink(t *testing.T) {
 	err := rs.Dial()
 
 	if err != nil {
-		t.Fatal("unable to create ssh server")
+		t.Fatal("unable to create ssh server", err)
 	}
 
 	wc.Add(1)

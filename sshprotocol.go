@@ -16,6 +16,7 @@ import (
 	"github.com/influx6/flux"
 	"github.com/kr/pty"
 	"golang.org/x/crypto/ssh"
+	"gopkg.in/lxc/go-lxc.v2"
 )
 
 type (
@@ -48,6 +49,20 @@ type (
 		Pfd *os.File
 	}
 
+	//ContainerInterface defines the container method rules
+	ContainerInterface interface {
+		Release()
+		GetContainer() *lxc.Container
+		LocalIP() string
+	}
+
+	//SSHSession defines a standard session contain information used by lxc servers
+	SSHSession interface {
+		Session
+		Container() ContainerInterface
+		Connection() *ssh.Client
+	}
+
 	//ChannelPayload defines a payload containing the channel and request of the server
 	ChannelPayload struct {
 		Chan ssh.Channel
@@ -66,11 +81,11 @@ type (
 		MaseterCloser chan struct{}
 	}
 
-	//ClientManager provides a function that returns a ssh.Client
-	ClientManager func(*ChannelNetwork) (*ssh.Client, error)
+	// //ClientManager provides a function that returns a ssh.Client
+	// ClientManager func(*ChannelNetwork) (*ssh.Client, error)
 
 	//ChannelMaker provides a function that returns a reader for a client
-	ChannelMaker func(*ChannelNetwork, ssh.Channel) (io.ReadCloser, error)
+	ChannelMaker func(*ChannelNetwork, SSHSession, ssh.Channel) (io.ReadCloser, error)
 )
 
 var (
@@ -78,7 +93,7 @@ var (
 )
 
 //ClientProxySSHProtocol builds on top of the base proxy
-func ClientProxySSHProtocol(s *SSHProtocol, cm ClientManager, cmk ChannelMaker) (base *SSHProxyProtocol) {
+func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyProtocol) {
 	base = BaseProxySSHProtocol(s)
 
 	base.NetworkOpen.Subscribe(func(b interface{}, s *flux.Sub) {
@@ -88,14 +103,24 @@ func ClientProxySSHProtocol(s *SSHProtocol, cm ClientManager, cmk ChannelMaker) 
 			return
 		}
 
-		client, err := cm(nc)
+		si, err := base.Sessions().GetSession(nc.Conn.RemoteAddr())
 
 		if err != nil {
 			log.Printf("Unable to find session client for (%+v)", nc.Conn.RemoteAddr())
 			return
 		}
 
-		defer client.Close()
+		session, ok := si.(SSHSession)
+
+		if !ok {
+			return
+		}
+
+		log.Printf("Session retrieved: (%+v) (%+v)", nc.Conn.RemoteAddr(), session)
+
+		defer session.Connection().Close()
+
+		client := session.Connection()
 
 		rcChannel, rcReq, err := client.OpenChannel(nc.MasterChan.ChannelType(), nc.MasterChan.ExtraData())
 
@@ -130,11 +155,11 @@ func ClientProxySSHProtocol(s *SSHProtocol, cm ClientManager, cmk ChannelMaker) 
 			}
 		}()
 
-		var wrapMaster io.ReadCloser = nc.Chan
-		var wrapSlave io.ReadCloser = rcChannel
+		wrapMaster := io.ReadCloser(nc.Chan)
+		wrapSlave := io.ReadCloser(rcChannel)
 
 		if cmk != nil {
-			rw, err := cmk(nc, rcChannel)
+			rw, err := cmk(nc, session, rcChannel)
 
 			if err != nil {
 				log.Println("Error creating custom reader for channel", err)

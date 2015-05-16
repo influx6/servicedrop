@@ -56,7 +56,7 @@ type (
 	SessionManagerInterface interface {
 		AddSession(net.Addr, Session)
 		DestroySession(net.Addr)
-		GetSession(net.Addr) Session
+		GetSession(net.Addr) (Session, error)
 	}
 
 	//SessionManager is used to managed session data for any service using the
@@ -67,7 +67,7 @@ type (
 
 	//Session is a map that can contain the data needed for use
 	Session interface {
-		Addr() net.Addr
+		Addr() string
 		User() string
 		Pass() interface{}
 		Start() time.Time
@@ -78,6 +78,8 @@ type (
 )
 
 var (
+	//ErrorNotFind stands for errors when value not find
+	ErrorNotFind = errors.New("NotFound!")
 	//ErrorBadRequestType stands for errors when the interface{} recieved can not
 	//be type asserted as a *http.Request object
 	ErrorBadRequestType = errors.New("type is not a *http.Request")
@@ -127,9 +129,14 @@ func NewSessionManager() *SessionManager {
 }
 
 //GetSession retrieves a session with the net.Addr
-func (s *SessionManager) GetSession(addr net.Addr) Session {
-	sm, _ := s.sessions.Get(addr).(Session)
-	return sm
+func (s *SessionManager) GetSession(addr net.Addr) (Session, error) {
+	sm, ok := s.sessions.Get(addr).(Session)
+
+	if ok {
+		return sm, nil
+	}
+
+	return sm, ErrorNotFind
 }
 
 //AddSession adds a new settion with the address
@@ -139,7 +146,10 @@ func (s *SessionManager) AddSession(addr net.Addr, sm Session) {
 
 //DestroySession deletes a session and its content from the map
 func (s *SessionManager) DestroySession(addr net.Addr) {
-	sh := s.GetSession(addr)
+	sh, err := s.GetSession(addr)
+	if err != nil {
+		return
+	}
 	defer sh.Close()
 	s.sessions.Remove(addr)
 }
