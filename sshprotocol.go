@@ -564,6 +564,15 @@ func (s *SSHProtocol) Dial() error {
 	}()
 
 	func() {
+		go func() {
+			<-s.ProtocolClosed
+			// conn.Close()
+			// con.Close()
+			log.Println("killing")
+			tcpcon.Close()
+			// panic("killing all processes")
+		}()
+
 	loopmaker:
 		for {
 			con, err := tcpcon.Accept()
@@ -572,11 +581,6 @@ func (s *SSHProtocol) Dial() error {
 				log.Println(fmt.Sprintf("Connection Accept Error: -> %v", err))
 				continue
 			}
-
-			go func() {
-				<-s.ProtocolClosed
-				con.Close()
-			}()
 
 			conn, schan, req, err := ssh.NewServerConn(con, s.conf)
 
@@ -602,9 +606,22 @@ func (s *SSHProtocol) Dial() error {
 func (s *SSHProtocol) Drop() error {
 	close(s.ProtocolClosed)
 
-	if s.tcpCon != nil {
-		s.tcpCon.Close()
-	}
+	// go func() {
+	// 	err := recover()
+	//
+	// 	if err != nil {
+	// 		log.Printf("Process died due to (%+v)", err)
+	// 	}
+	// }()
+	//
+	// panic("close all connections")
+	// if s.tcpCon != nil {
+	// 	s.tcpCon.Close()
+	// }
+	//
+	// for _, sv := range s.servers {
+	// 	sv.Close()
+	// }
 
 	return nil
 }
