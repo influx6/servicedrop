@@ -39,7 +39,7 @@ func TestRSALink(t *testing.T) {
 func TestPasswordLink(t *testing.T) {
 
 	wc := new(sync.WaitGroup)
-	rs := PasswordSSHProtocolLink("io", "localhost", 22, "thelogos", "Loc*20Form3")
+	rs := PasswordSSHProtocolLink("io", "localhost", 22, "thelogos", "Locco")
 
 	err := rs.Dial()
 
