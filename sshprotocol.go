@@ -246,6 +246,7 @@ func setupRoutes(s *SSHProtocol) {
 	s.Routes().New("session/pty-req")
 	s.Routes().New("session/env")
 	s.Routes().New("session/shell")
+	s.Routes().New("session/window-change")
 }
 
 //PtyRun assigns a psuedo terminal tty to the corresponding std.io set and returns an error indicating state
@@ -447,6 +448,42 @@ func AddShellBehaviour(s *SSHProtocol) {
 	})
 }
 
+//AddWindowChangeBehaviour allows to add the default response/actions for window-change behaviour
+func AddWindowChangeBehaviour(s *SSHProtocol) {
+	if shell == "" {
+		shell = "sh"
+	}
+
+	s.Routes().Child("session/window-change").Sub(func(data *Request, s *flux.Sub) {
+		log.Println("receiving request:", data.Paths)
+
+		payload, ok := data.Payload.(*PayloadRack)
+
+		if !ok {
+			return
+		}
+
+		payload.Release().When(func(d interface{}, _ flux.ActionInterface) {
+			cpay, ok := d.(*ChannelPayload)
+
+			if !ok {
+				return
+			}
+
+			if cpay.Pty != nil {
+				cpay.Do.Do(func() {
+					w, h := ParseDimension(cpay.Req.Payload)
+					MurphWindow(cpay.Pty.Pfd.Fd(), w, h)
+					if cpay.Req.WantReply {
+						cpay.Req.Reply(true, nil)
+					}
+				})
+			}
+
+		})
+	})
+}
+
 //AddExecBehaviour allows to add the default response/actions for exec-request
 func AddExecBehaviour(s *SSHProtocol) {
 	if shell == "" {
@@ -521,40 +558,47 @@ func (s *SSHProtocol) Dial() error {
 
 	s.tcpCon = tcpcon
 
+	// defer func() {
+	// 	s.tcpCon = nil
+	// }()
 	defer tcpcon.Close()
-	defer func() {
-		s.tcpCon = nil
+
+	func() {
+	loopmaker:
+		for {
+			con, err := tcpcon.Accept()
+
+			if err != nil {
+				log.Println(fmt.Sprintf("Connection Accept Error: -> %v", err))
+				continue
+			}
+
+			conn, schan, req, err := ssh.NewServerConn(con, s.conf)
+
+			go func() {
+				<-s.ProtocolClosed
+				log.Println("closing connections")
+				con.Close()
+				conn.Close()
+			}()
+
+			if err != nil {
+				log.Println(fmt.Sprintf("Unable to accept connection: -> %v", err))
+				continue loopmaker
+			}
+
+			// defer conn.Close()
+
+			s.servers = append(s.servers, conn)
+
+			go s.HandleRequest(req, conn)
+			go s.HandleChannel(schan, conn)
+
+		}
+
 	}()
 
-loopmaker:
-	for {
-		con, err := tcpcon.Accept()
-
-		if err != nil {
-			log.Println(fmt.Sprintf("Connection Accept Error: -> %v", err))
-			continue
-		}
-
-		go func() {
-			<-s.ProtocolClosed
-			con.Close()
-		}()
-
-		conn, schan, req, err := ssh.NewServerConn(con, s.conf)
-
-		if err != nil {
-			log.Println(fmt.Sprintf("Unable to accept connection: -> %v", err))
-			continue loopmaker
-		}
-
-		// defer conn.Close()
-
-		s.servers = append(s.servers, conn)
-
-		go s.HandleRequest(req, conn)
-		go s.HandleChannel(schan, conn)
-
-	}
+	return err
 }
 
 //Drop ends the connection used by this service
@@ -575,25 +619,29 @@ func (s *SSHProtocol) HandleChannel(sc <-chan ssh.NewChannel, d *ssh.ServerConn)
 	defer d.Close()
 	defer close(closer)
 
-	for curChan := range sc {
+	channelProc := func(curChan ssh.NewChannel) {
 		stype := curChan.ChannelType()
 		rw := s.Routes().Child(stype)
 
 		if rw == nil {
 			curChan.Reject(ssh.UnknownChannelType, "unknown not supported!")
-			continue
+			return
+			// continue
 		}
 
 		log.Printf("Accepting connections for (%s)", stype)
 
 		ch, reqs, err := curChan.Accept()
 
-		s.NetworkOpen.Emit(&ChannelNetwork{d, ch, curChan, closer, s.ProtocolClosed})
-
 		if err != nil {
 			log.Println("Error accepting channel: ", err)
-			continue
+			return
+			// continue
 		}
+
+		defer ch.Close()
+
+		s.NetworkOpen.Emit(&ChannelNetwork{d, ch, curChan, closer, s.ProtocolClosed})
 
 		log.Printf("Creating pty terminal for (%s)", stype)
 
@@ -603,7 +651,8 @@ func (s *SSHProtocol) HandleChannel(sc <-chan ssh.NewChannel, d *ssh.ServerConn)
 
 		if err != nil {
 			log.Printf("Unable to open pty (%+v):(%+v)", err, fd)
-			continue
+			return
+			// continue
 		}
 
 		pterm := &Pty{tty, fd}
@@ -627,8 +676,24 @@ func (s *SSHProtocol) HandleChannel(sc <-chan ssh.NewChannel, d *ssh.ServerConn)
 				}, -1)
 			}
 		}(reqs)
-
 	}
+
+	func() {
+	loopdeck:
+		for {
+			select {
+			case dc := <-sc:
+				channelProc(dc)
+			case <-s.ProtocolClosed:
+				log.Println("breaking handling proc")
+				break loopdeck
+			default:
+				// log.Println("...handling")
+			}
+		}
+
+	}()
+
 }
 
 //HandleRequest simple handless a ssh.ServerConn  out-of-bounds request
