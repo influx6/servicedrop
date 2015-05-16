@@ -558,10 +558,10 @@ func (s *SSHProtocol) Dial() error {
 
 	s.tcpCon = tcpcon
 
-	// defer func() {
-	// 	s.tcpCon = nil
-	// }()
 	defer tcpcon.Close()
+	defer func() {
+		s.tcpCon = nil
+	}()
 
 	func() {
 	loopmaker:
@@ -573,14 +573,12 @@ func (s *SSHProtocol) Dial() error {
 				continue
 			}
 
-			conn, schan, req, err := ssh.NewServerConn(con, s.conf)
-
 			go func() {
 				<-s.ProtocolClosed
-				log.Println("closing connections")
 				con.Close()
-				conn.Close()
 			}()
+
+			conn, schan, req, err := ssh.NewServerConn(con, s.conf)
 
 			if err != nil {
 				log.Println(fmt.Sprintf("Unable to accept connection: -> %v", err))
@@ -595,7 +593,6 @@ func (s *SSHProtocol) Dial() error {
 			go s.HandleChannel(schan, conn)
 
 		}
-
 	}()
 
 	return err
@@ -633,15 +630,13 @@ func (s *SSHProtocol) HandleChannel(sc <-chan ssh.NewChannel, d *ssh.ServerConn)
 
 		ch, reqs, err := curChan.Accept()
 
+		s.NetworkOpen.Emit(&ChannelNetwork{d, ch, curChan, closer, s.ProtocolClosed})
+
 		if err != nil {
 			log.Println("Error accepting channel: ", err)
 			return
 			// continue
 		}
-
-		defer ch.Close()
-
-		s.NetworkOpen.Emit(&ChannelNetwork{d, ch, curChan, closer, s.ProtocolClosed})
 
 		log.Printf("Creating pty terminal for (%s)", stype)
 
@@ -679,19 +674,19 @@ func (s *SSHProtocol) HandleChannel(sc <-chan ssh.NewChannel, d *ssh.ServerConn)
 	}
 
 	func() {
-	loopdeck:
+	loopy:
 		for {
 			select {
-			case dc := <-sc:
-				channelProc(dc)
 			case <-s.ProtocolClosed:
-				log.Println("breaking handling proc")
-				break loopdeck
+				break loopy
+			case dc := <-sc:
+				if dc != nil {
+					channelProc(dc)
+				}
 			default:
-				// log.Println("...handling")
+				//logit
 			}
 		}
-
 	}()
 
 }

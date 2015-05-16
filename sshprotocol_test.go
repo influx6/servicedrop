@@ -3,7 +3,6 @@ package servicedrop
 import (
 	"log"
 	"testing"
-	"time"
 
 	"github.com/influx6/flux"
 	"golang.org/x/crypto/ssh"
@@ -65,10 +64,10 @@ func TestSSHProtocol(t *testing.T) {
 		log.Println("receiving shell request:", data.Paths)
 	})
 
-	go func() {
-		<-time.After(time.Duration(70) * time.Millisecond)
-		serv.Drop()
-	}()
+	// go func() {
+	// 	<-time.After(time.Duration(70) * time.Millisecond)
+	// 	serv.Drop()
+	// }()
 
 	serv.Dial()
 
