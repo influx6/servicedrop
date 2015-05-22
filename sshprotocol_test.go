@@ -10,7 +10,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func TestSSHProxyProtocolCreation(t *testing.T) {
+func TestRSASSHProxyProtocolCreation(t *testing.T) {
 	conf := NewRouteConfig(0, 60, func(act flux.ActionInterface) {
 		act.When(func(data interface{}, _ flux.ActionInterface) {
 			log.Println("We ending data:...", data)
@@ -19,7 +19,7 @@ func TestSSHProxyProtocolCreation(t *testing.T) {
 
 	var serv *SSHProtocol
 
-	serv = PasswordSSHProtocol(conf, "io", "localhost", 2022, "./perm/id_rsa", PasswordAuthenticationWrap(func(p ProtocolInterface, c ssh.ConnMetadata, b []byte) (*ssh.Permissions, error) {
+	serv = RSASSHProtocol(conf, "io", "localhost", 2022, "./perm/perm", KeyAuthenticationWrap(func(p ProtocolInterface, c ssh.ConnMetadata, b ssh.PublicKey) (*ssh.Permissions, error) {
 		log.Println("Authenticate: ...", p, c, b)
 		return nil, nil
 	}, serv))
@@ -29,6 +29,33 @@ func TestSSHProxyProtocolCreation(t *testing.T) {
 	if prox == nil {
 		t.Fatal("unable to create proxy server off current ssh-server")
 	}
+
+	AddRedirectBehaviour(prox.SSHProtocol)
+
+	prox.Drop()
+}
+
+func TestSSHProxyProtocolCreation(t *testing.T) {
+	conf := NewRouteConfig(0, 60, func(act flux.ActionInterface) {
+		act.When(func(data interface{}, _ flux.ActionInterface) {
+			log.Println("We ending data:...", data)
+		})
+	})
+
+	var serv *SSHProtocol
+
+	serv = PasswordSSHProtocol(conf, "io", "localhost", 2022, "./perm/perm", PasswordAuthenticationWrap(func(p ProtocolInterface, c ssh.ConnMetadata, b []byte) (*ssh.Permissions, error) {
+		log.Println("Authenticate: ...", p, c, b)
+		return nil, nil
+	}, serv))
+
+	prox := BaseProxySSHProtocol(serv)
+
+	if prox == nil {
+		t.Fatal("unable to create proxy server off current ssh-server")
+	}
+
+	AddRedirectBehaviour(prox.SSHProtocol)
 
 	prox.Drop()
 }
@@ -42,7 +69,7 @@ func TestSSHProtocol(t *testing.T) {
 
 	var serv *SSHProtocol
 
-	serv = PasswordSSHProtocol(conf, "io", "localhost", 2022, "./perm/id_rsa", PasswordAuthenticationWrap(func(p ProtocolInterface, c ssh.ConnMetadata, b []byte) (*ssh.Permissions, error) {
+	serv = PasswordSSHProtocol(conf, "io", "localhost", 2022, "./perm/perm", PasswordAuthenticationWrap(func(p ProtocolInterface, c ssh.ConnMetadata, b []byte) (*ssh.Permissions, error) {
 		log.Println("Authenticate: ...", p, c, b)
 		return nil, nil
 	}, serv))

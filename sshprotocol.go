@@ -23,11 +23,14 @@ type (
 	//SSHProtocol handles the server connection of the ssh protcol
 	SSHProtocol struct {
 		*Protocol
-		NetworkOpen  flux.Pipe
-		NetworkClose flux.Pipe
-		conf         *ssh.ServerConfig
-		servers      []*ssh.ServerConn
-		tcpCon       net.Listener
+		NetworkOpen      flux.Pipe
+		NetworkClose     flux.Pipe
+		NetworkCycle     flux.Pipe
+		NetworkChannels  flux.Pipe
+		NetworkOutbounds flux.Pipe
+		conf             *ssh.ServerConfig
+		servers          []*ssh.ServerConn
+		tcpCon           net.Listener
 	}
 
 	//SSHProxyProtocol handles the sshprotcol created and proxies all its connection
@@ -74,11 +77,25 @@ type (
 	//ChannelNetwork contains specific data which is used to pass data into other
 	//operations used on the ssh-protocol,this is sent into the sshProtocol Network socket
 	ChannelNetwork struct {
-		Conn          ssh.ConnMetadata
-		Chan          ssh.Channel
-		MasterChan    ssh.NewChannel
-		ChanCloser    chan struct{}
-		MaseterCloser chan struct{}
+		Conn             ssh.ConnMetadata
+		MasterChan       ssh.Channel
+		MasterNewChan    ssh.NewChannel
+		ChanCloser       chan struct{}
+		MaseterCloser    chan struct{}
+		MasterReqChannel <-chan *ssh.Request
+		Pty              *Pty
+	}
+
+	//ChannelPacket is used to handle off new channel requests from the ssh-server
+	ChannelPacket struct {
+		Conn *ssh.ServerConn
+		Chan <-chan ssh.NewChannel
+	}
+
+	//RequestPacket is used to handle off new out of band channel requests from the ssh-server
+	RequestPacket struct {
+		Conn *ssh.ServerConn
+		Reqs <-chan *ssh.Request
 	}
 
 	// //ClientManager provides a function that returns a ssh.Client
@@ -116,17 +133,38 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 			return
 		}
 
-		log.Printf("Session retrieved: (%+v) (%+v)", nc.Conn.RemoteAddr(), session)
+		log.Printf("Session retrieved: (%+v) (%+v)", nc.Conn.RemoteAddr(), session.User())
 
-		defer session.Connection().Close()
+		// defer session.Connection().Close()
 
 		client := session.Connection()
 
-		rcChannel, rcReq, err := client.OpenChannel(nc.MasterChan.ChannelType(), nc.MasterChan.ExtraData())
+		log.Printf("Session connection gained: %s will now use OpenChannel for %s %+v", client.RemoteAddr(), nc.MasterNewChan.ChannelType(), nc.MasterNewChan.ExtraData())
+
+		rcChannel, rcReq, err := client.OpenChannel(nc.MasterNewChan.ChannelType(), nc.MasterNewChan.ExtraData())
 
 		if err != nil {
-			log.Printf("Error creating ClientChannel for %+v %+v", nc.MasterChan.ChannelType(), err)
+			log.Printf("Error creating ClientChannel for %+v %+v", nc.MasterNewChan.ChannelType(), err)
 			return
+		}
+
+		log.Println("Success creating client proxy channel:", rcChannel, err)
+
+		replyMaker := func(rq *ssh.Request, dest ssh.Channel) {
+			log.Println("sending ssh Request for:", rq.Type, "to:", dest)
+
+			do, err := dest.SendRequest(rq.Type, rq.WantReply, rq.Payload)
+
+			if err != nil {
+				log.Printf("Request proxy failed on: (%s) (%+v) with error (%+v)", nc.Conn.RemoteAddr(), rq.Type, err)
+			}
+
+			log.Printf("Request proxy with result: (%v)", do)
+
+			if rq.WantReply {
+				rq.Reply(do, nil)
+			}
+
 		}
 
 		go func() {
@@ -137,25 +175,55 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 					break clientloop
 				case <-nc.MaseterCloser:
 					break clientloop
-				case rq := <-rcReq:
-					log.Println("creating RequestChannel for:", rq.Type)
-
-					do, err := rcChannel.SendRequest(rq.Type, rq.WantReply, rq.Payload)
-
-					if err != nil {
-						log.Printf("Request proxy failed on: (%s) (%+v) with error (%+v)", nc.Conn.RemoteAddr(), rq.Type, err)
+				case mrq, ok := <-nc.MasterReqChannel:
+					if !ok {
+						log.Println("Master Channel did not release a request!", mrq, ok)
+						return
 					}
 
-					if rq.WantReply {
-						rq.Reply(do, nil)
+					log.Println("Master Channel released a request:", mrq.Type)
+					replyMaker(mrq, rcChannel)
+
+					switch mrq.Type {
+					case "exit-status":
+						break clientloop
 					}
+
+				case rq, ok := <-rcReq:
+					if !ok {
+						log.Println("Client Channel did not release a request!", rq, ok)
+						return
+					}
+
+					log.Println("Client Channel released a request:", rq.Type)
+					replyMaker(rq, nc.MasterChan)
+
+					switch rq.Type {
+					case "exit-status":
+						break clientloop
+					}
+
 				default:
 					//logit
 				}
+
 			}
+			log.Println("Closing Client and Master Channels for:", session.Addr())
+			rcChannel.Close()
+			nc.MasterChan.Close()
 		}()
 
-		wrapMaster := io.ReadCloser(nc.Chan)
+		log.Println("creating channel readers and connection")
+
+		//handle closing and state management of copying op
+		copyCloser := new(sync.Once)
+		copyState := make(chan struct{})
+		copyCloseFn := func() {
+			log.Println("Closing copying channel and operation!")
+			close(copyState)
+		}
+
+		wrapMaster := io.ReadCloser(nc.MasterChan)
 		wrapSlave := io.ReadCloser(rcChannel)
 
 		if cmk != nil {
@@ -168,13 +236,32 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 			}
 		}
 
-		go io.Copy(rcChannel, wrapMaster)
-		go io.Copy(nc.Chan, wrapSlave)
+		// go io.Copy(rcChannel, wrapMaster)
+		// go io.Copy(nc.MasterChan, wrapSlave)
 
-		defer wrapMaster.Close()
-		defer wrapSlave.Close()
+		go func() {
+			io.Copy(rcChannel, wrapMaster)
+			copyCloser.Do(copyCloseFn)
+		}()
 
-		base.NetworkClose.Emit(nc)
+		go func() {
+			io.Copy(nc.MasterChan, wrapSlave)
+			copyCloser.Do(copyCloseFn)
+		}()
+
+		// base.NetworkClose.Emit(nc)
+
+		go func() {
+			<-copyState
+			log.Println("Closing all Channels!")
+			defer wrapMaster.Close()
+			defer wrapSlave.Close()
+
+			base.NetworkClose.Emit(nc)
+
+			log.Println("closing session connection")
+			session.Connection().Close()
+		}()
 
 		return
 	})
@@ -182,10 +269,18 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 	return
 }
 
+//BaseRedirectProxySSHProtocol returns a ssh protocol to wrap over an sshprotocol using the AddRedirectBehaviour
+func BaseRedirectProxySSHProtocol(s *SSHProtocol) *SSHProxyProtocol {
+	proxy := &SSHProxyProtocol{s}
+	AddRedirectBehaviour(proxy.SSHProtocol)
+	return proxy
+}
+
 //BaseProxySSHProtocol returns a ssh protocol to wrap over an sshprotocol
 func BaseProxySSHProtocol(s *SSHProtocol) *SSHProxyProtocol {
 	proxy := &SSHProxyProtocol{s}
-	AddRedirectBehaviour(proxy.SSHProtocol)
+	proxy.SSHProtocol.NetworkChannels.ClearListeners()
+	AddProxyChannelManager(proxy.SSHProtocol)
 	return proxy
 }
 
@@ -215,12 +310,15 @@ func RSASSHProtocol(rc *RouteConfig, service, addr string, port int, rsaFile str
 		BaseProtocol(desc, rc),
 		flux.PushSocket(0),
 		flux.PushSocket(0),
+		flux.PushSocket(0),
+		flux.PushSocket(0),
+		flux.PushSocket(0),
 		conf,
 		make([]*ssh.ServerConn, 0),
 		nil,
 	}
 
-	setupRoutes(sd)
+	setupServer(sd)
 
 	return sd
 }
@@ -251,12 +349,15 @@ func PasswordSSHProtocol(rc *RouteConfig, service, addr string, port int, rsaFil
 		BaseProtocol(desc, rc),
 		flux.PushSocket(0),
 		flux.PushSocket(0),
+		flux.PushSocket(0),
+		flux.PushSocket(0),
+		flux.PushSocket(0),
 		conf,
 		make([]*ssh.ServerConn, 0),
 		nil,
 	}
 
-	setupRoutes(sd)
+	setupServer(sd)
 
 	// sd.Routes().Sub(func(r *Request, s *flux.Sub) {
 	// 	log.Printf("req: %+v %+v %+v", r.Paths, r.Payload, r)
@@ -266,12 +367,14 @@ func PasswordSSHProtocol(rc *RouteConfig, service, addr string, port int, rsaFil
 	return sd
 }
 
-func setupRoutes(s *SSHProtocol) {
+func setupServer(s *SSHProtocol) {
 	s.Routes().New("session/exec")
 	s.Routes().New("session/pty-req")
 	s.Routes().New("session/env")
 	s.Routes().New("session/shell")
 	s.Routes().New("session/window-change")
+	AddStandardChannelManager(s)
+	AddOutBoundRequestManager(s)
 }
 
 //PtyRun assigns a psuedo terminal tty to the corresponding std.io set and returns an error indicating state
@@ -593,7 +696,7 @@ func (s *SSHProtocol) Dial() error {
 			<-s.ProtocolClosed
 			// conn.Close()
 			// con.Close()
-			log.Println("killing")
+			log.Println("killing process!")
 			tcpcon.Close()
 			// panic("killing all processes")
 		}()
@@ -608,6 +711,7 @@ func (s *SSHProtocol) Dial() error {
 			}
 
 			conn, schan, req, err := ssh.NewServerConn(con, s.conf)
+			log.Println("New Connection created:", conn.RemoteAddr(), conn.LocalAddr())
 
 			if err != nil {
 				log.Println(fmt.Sprintf("Unable to accept connection: -> %v", err))
@@ -616,10 +720,13 @@ func (s *SSHProtocol) Dial() error {
 
 			// defer conn.Close()
 
-			s.servers = append(s.servers, conn)
+			// s.servers = append(s.servers, conn)
 
-			go s.HandleRequest(req, conn)
-			go s.HandleChannel(schan, conn)
+			// go s.HandleRequest(req, conn)
+			// go s.HandleChannel(schan, conn)
+			log.Println("Listeners on channels:", s.NetworkChannels.Size())
+			go s.NetworkChannels.Emit(&ChannelPacket{conn, schan})
+			go s.NetworkOutbounds.Emit(&RequestPacket{conn, req})
 
 		}
 	}()
@@ -651,90 +758,208 @@ func (s *SSHProtocol) Drop() error {
 	return nil
 }
 
-//HandleChannel manages the handling of a ConnectionChannel requests channels
-func (s *SSHProtocol) HandleChannel(sc <-chan ssh.NewChannel, d *ssh.ServerConn) {
-	closer := make(chan struct{})
+//AddStandardChannelManager manages the handling of a ConnectionChannel requests channels
+func AddStandardChannelManager(s *SSHProtocol) {
+	s.NetworkChannels.Subscribe(func(pack interface{}, sub *flux.Sub) {
+		log.Printf("------New Connection Subscription Receieved: SSHServer (%+v)-----------", s.Descriptor().Host())
+		packet, ok := pack.(*ChannelPacket)
 
-	defer d.Close()
-	defer close(closer)
-
-	channelProc := func(curChan ssh.NewChannel) {
-		stype := curChan.ChannelType()
-		rw := s.Routes().Child(stype)
-
-		if rw == nil {
-			curChan.Reject(ssh.UnknownChannelType, "unknown not supported!")
+		if !ok {
+			log.Printf("received invalid ChannelPacket for ssh.NewChannel request: %+v %+v", packet, pack)
 			return
-			// continue
 		}
 
-		log.Printf("Accepting connections for (%s)", stype)
+		sc := packet.Chan
+		d := packet.Conn
 
-		ch, reqs, err := curChan.Accept()
+		closer := make(chan struct{})
 
-		s.NetworkOpen.Emit(&ChannelNetwork{d, ch, curChan, closer, s.ProtocolClosed})
+		defer d.Close()
+		defer close(closer)
+		// defer sub.Close()
 
-		if err != nil {
-			log.Println("Error accepting channel: ", err)
-			return
-			// continue
-		}
+		channelProc := func(curChan ssh.NewChannel) {
+			stype := curChan.ChannelType()
+			rw := s.Routes().Child(stype)
 
-		log.Printf("Creating pty terminal for (%s)", stype)
-
-		fd, tty, err := pty.Open()
-
-		log.Printf("Pty Successful? %+v ", err == nil)
-
-		if err != nil {
-			log.Printf("Unable to open pty (%+v):(%+v)", err, fd)
-			return
-			// continue
-		}
-
-		pterm := &Pty{tty, fd}
-
-		go func(in <-chan *ssh.Request) {
-		chanHandle:
-			for greq := range in {
-				reqtype := greq.Type
-
-				if reqtype == "exit-status" {
-					ch.Close()
-					break chanHandle
-				}
-
-				path := fmt.Sprintf("%s/%s/%s", s.Descriptor().Service, stype, reqtype)
-				s.Routes().Serve(path, &ChannelPayload{
-					ch,
-					greq,
-					pterm,
-					new(sync.Once),
-				}, -1)
+			if rw == nil {
+				curChan.Reject(ssh.UnknownChannelType, "unknown not supported!")
+				return
+				// continue
 			}
-		}(reqs)
-	}
 
-	func() {
-	loopy:
-		for {
-			select {
-			case <-s.ProtocolClosed:
-				break loopy
-			case dc := <-sc:
-				if dc != nil {
-					channelProc(dc)
-				}
-			default:
-				//logit
+			log.Printf("Accepting connections for (%s)", stype)
+
+			ch, reqs, err := curChan.Accept()
+
+			if err != nil {
+				log.Println("Error accepting channel: ", err)
+				return
+				// continue
 			}
+
+			log.Printf("Creating pty terminal for (%s)", stype)
+
+			fd, tty, err := pty.Open()
+
+			log.Printf("Pty Successful? %+v ", err == nil)
+
+			if err != nil {
+				log.Printf("Unable to open pty (%+v):(%+v)", err, fd)
+				return
+				// continue
+			}
+
+			pterm := &Pty{tty, fd}
+
+			s.NetworkOpen.Emit(&ChannelNetwork{
+				d,
+				ch,
+				curChan,
+				closer,
+				s.ProtocolClosed,
+				reqs,
+				pterm,
+				// nil,
+			})
+
+			go func(in <-chan *ssh.Request) {
+			chanHandle:
+				for greq := range in {
+					reqtype := greq.Type
+
+					if reqtype == "exit-status" {
+						ch.Close()
+						break chanHandle
+					}
+
+					path := fmt.Sprintf("%s/%s/%s", s.Descriptor().Service, stype, reqtype)
+					s.Routes().Serve(path, &ChannelPayload{
+						ch,
+						greq,
+						pterm,
+						new(sync.Once),
+					}, -1)
+				}
+			}(reqs)
 		}
-	}()
+
+		func() {
+		loopy:
+			for {
+				select {
+				case <-s.ProtocolClosed:
+					break loopy
+				case dc := <-sc:
+					if dc != nil {
+						channelProc(dc)
+					}
+				default:
+					//logit
+				}
+			}
+		}()
+	})
 
 }
 
-//HandleRequest simple handless a ssh.ServerConn  out-of-bounds request
-func (s *SSHProtocol) HandleRequest(req <-chan *ssh.Request, d *ssh.ServerConn) {
-	_ = d
-	ssh.DiscardRequests(req)
+//AddProxyChannelManager manages the handling of a ConnectionChannel requests channels
+func AddProxyChannelManager(s *SSHProtocol) {
+	s.NetworkChannels.Subscribe(func(pack interface{}, sub *flux.Sub) {
+		log.Printf("------New Connection Subscription Receieved: SSH Proxy Server (%+v)-----------", s.Descriptor().Host())
+		packet, ok := pack.(*ChannelPacket)
+
+		if !ok {
+			log.Printf("received invalid ChannelPacket for ssh.NewChannel request: %+v %+v", packet, pack)
+			return
+		}
+
+		sc := packet.Chan
+		d := packet.Conn
+
+		closer := make(chan struct{})
+
+		defer d.Close()
+		defer close(closer)
+		// defer sub.Close()
+
+		channelProc := func(curChan ssh.NewChannel) {
+			stype := curChan.ChannelType()
+			rw := s.Routes().Child(stype)
+
+			if rw == nil {
+				curChan.Reject(ssh.UnknownChannelType, "unknown not supported!")
+				return
+				// continue
+			}
+
+			log.Printf("Accepting connections for (%s)", stype)
+
+			ch, reqs, err := curChan.Accept()
+
+			if err != nil {
+				log.Println("Error accepting channel: ", err)
+				return
+				// continue
+			}
+
+			// log.Printf("Creating pty terminal for (%s)", stype)
+			//
+			// fd, tty, err := pty.Open()
+			//
+			// log.Printf("Pty Successful? %+v ", err == nil)
+			//
+			// if err != nil {
+			// 	log.Printf("Unable to open pty (%+v):(%+v)", err, fd)
+			// 	return
+			// 	// continue
+			// }
+			//
+			// pterm := &Pty{tty, fd}
+
+			s.NetworkOpen.Emit(&ChannelNetwork{
+				d,
+				ch,
+				curChan,
+				closer,
+				s.ProtocolClosed,
+				reqs,
+				nil,
+			})
+
+		}
+
+		func() {
+		loopy:
+			for {
+				select {
+				case <-s.ProtocolClosed:
+					break loopy
+				case dc := <-sc:
+					if dc != nil {
+						channelProc(dc)
+					}
+				default:
+					//logit
+				}
+			}
+		}()
+
+	})
+
+}
+
+//AddOutBoundRequestManager simple handless a ssh.ServerConn  out-of-bounds request
+func AddOutBoundRequestManager(s *SSHProtocol) {
+	s.NetworkOutbounds.Subscribe(func(pack interface{}, sub *flux.Sub) {
+		packet, ok := pack.(*RequestPacket)
+
+		if !ok {
+			log.Printf("received invalid RequestPacket for ssh.NewChannel request: %+v %+v", packet, pack)
+			return
+		}
+
+		log.Printf("Discarding Out-Of-Bands Requests: %v", packet)
+		ssh.DiscardRequests(packet.Reqs)
+	})
 }

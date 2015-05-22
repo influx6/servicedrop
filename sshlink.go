@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"log"
 
-	// "code.google.com/p/go.crypto/ssh"
 	"github.com/influx6/flux"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
