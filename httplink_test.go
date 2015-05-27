@@ -15,7 +15,7 @@ func TestHTTPProLink(t *testing.T) {
 		t.Fatal("new link not created", link)
 	}
 
-	ax := link.Request("/", nil).Done().Then(WhenHTTPRequest(func(req *http.Request, next flux.ActionInterface) {
+	ax := link.Request("/io", nil).Done().Then(WhenHTTPRequest(func(req *http.Request, next flux.ActionInterface) {
 		req.Header.Set("X-WE-Wrote-IT", "1")
 		next.Fullfill(req)
 	}))
