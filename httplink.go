@@ -43,6 +43,8 @@ func (h *HTTPProtocolLink) Request(path string, body io.Reader) flux.ActionStack
 	path = EndSlash.ReplaceAllString(path, "")
 	url := fmt.Sprintf("%s://%s/%s", h.Descriptor().Scheme, addr, path)
 
+	log.Printf("HTTPLink: New HTTP Request for %s", url)
+
 	red := flux.NewAction()
 	erd := flux.NewAction()
 
@@ -60,9 +62,10 @@ func (h *HTTPProtocolLink) Request(path string, body io.Reader) flux.ActionStack
 
 		rq.Header.Set("X-Service-Request", h.Descriptor().Service)
 
+		log.Printf("HTTPLink: Request Header Set,Initiaing RequestClient Sending...")
 		res, err := h.client.Do(rq)
 
-		log.Println("creating res:", res, err)
+		log.Printf("HTTPLink: Recieved Request (%s) Response Status: %d", rq.URL, res.StatusCode)
 
 		pck := NewHTTPPacket(res, rq, err)
 
@@ -90,6 +93,8 @@ func (h *HTTPProtocolLink) Request(path string, body io.Reader) flux.ActionStack
 			return cl
 		}
 	}
+
+	log.Printf("HTTPLink: Initiating Http Request Method: (%+s), URI: (%+s)", req.Method, req.URL)
 
 	cl.Complete(req)
 
