@@ -22,6 +22,13 @@ func NewRouteConfig(buf, to int, fail Failure) *RouteConfig {
 	return &RouteConfig{buf, to, fail}
 }
 
+//BasicRouteConfig returns a default no-op failure routeconfig
+func BasicRouteConfig(buf, to int) *RouteConfig {
+	return NewRouteConfig(buf, to, func(act flux.ActionInterface) {
+		act.When(func(data interface{}, _ flux.ActionInterface) {})
+	})
+}
+
 //Failure is a function that types behaviour to be done when using Packets and
 //you want to attach a reaction to when a packet has failed usually its timeout
 type Failure func(flux.ActionInterface)

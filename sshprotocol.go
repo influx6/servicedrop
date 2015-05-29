@@ -14,9 +14,9 @@ import (
 	"unsafe"
 	// "github.com/pkg/sftp"
 	"github.com/influx6/flux"
+	"github.com/influx6/lxcontroller"
 	"github.com/kr/pty"
 	"golang.org/x/crypto/ssh"
-	"gopkg.in/lxc/go-lxc.v2"
 )
 
 type (
@@ -52,13 +52,6 @@ type (
 		Pfd *os.File
 	}
 
-	//ContainerInterface defines the container method rules
-	ContainerInterface interface {
-		Release()
-		GetContainer() *lxc.Container
-		LocalIP() string
-	}
-
 	// //ClientCycle handles managing of connection cycle
 	// ClientCycle struct {
 	// 	Network     *ChannelNetwork //current channelnetwork in use
@@ -70,7 +63,7 @@ type (
 	//SSHSession defines a standard session contain information used by lxc servers
 	SSHSession interface {
 		Session
-		Container() ContainerInterface
+		Container() lxcontroller.Controllers
 		Connection() *ssh.Client
 	}
 
