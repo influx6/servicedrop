@@ -13,8 +13,8 @@ import (
 	"syscall"
 	"unsafe"
 	// "github.com/pkg/sftp"
+	"github.com/honeycast/lxcontroller"
 	"github.com/influx6/flux"
-	"github.com/influx6/lxcontroller"
 	"github.com/kr/pty"
 	"golang.org/x/crypto/ssh"
 )

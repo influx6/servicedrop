@@ -3,9 +3,10 @@ package servicedrop
 import (
 	"fmt"
 	"io"
+
+	"code.google.com/p/go-uuid/uuid"
+	"github.com/influx6/flux"
 )
-import "code.google.com/p/go-uuid/uuid"
-import "github.com/influx6/flux"
 
 //ProtocolLinkInterface defines a ProtocolLink member method rules
 type ProtocolLinkInterface interface {
