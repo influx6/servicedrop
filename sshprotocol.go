@@ -23,13 +23,9 @@ type (
 	//SSHProtocol handles the server connection of the ssh protcol
 	SSHProtocol struct {
 		*Protocol
-		NetworkOpen      flux.Pipe
-		NetworkClose     flux.Pipe
-		NetworkCycle     flux.Pipe
 		NetworkChannels  flux.Pipe
 		NetworkOutbounds flux.Pipe
 		conf             *ssh.ServerConfig
-		servers          []*ssh.ServerConn
 		tcpCon           net.Listener
 	}
 
@@ -261,12 +257,12 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 			log.Println("Closing all Channels!")
 			defer wrapMaster.Close()
 			defer wrapSlave.Close()
+			defer log.Println("closing session connection")
+			defer session.Connection().Close()
 
 			// session.end = time.Now()
 			base.NetworkClose.Emit(nc)
 
-			log.Println("closing session connection")
-			session.Connection().Close()
 		}()
 
 		return
@@ -316,11 +312,7 @@ func RSASSHProtocol(rc *RouteConfig, service, addr string, port int, rsaFile str
 		BaseProtocol(desc, rc),
 		flux.PushSocket(0),
 		flux.PushSocket(0),
-		flux.PushSocket(0),
-		flux.PushSocket(0),
-		flux.PushSocket(0),
 		conf,
-		make([]*ssh.ServerConn, 0),
 		nil,
 	}
 
@@ -355,11 +347,7 @@ func PasswordSSHProtocol(rc *RouteConfig, service, addr string, port int, rsaFil
 		BaseProtocol(desc, rc),
 		flux.PushSocket(0),
 		flux.PushSocket(0),
-		flux.PushSocket(0),
-		flux.PushSocket(0),
-		flux.PushSocket(0),
 		conf,
-		make([]*ssh.ServerConn, 0),
 		nil,
 	}
 

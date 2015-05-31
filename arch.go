@@ -99,10 +99,13 @@ type ProtocolInterface interface {
 //Protocol defines the basic structure for specific service type
 type Protocol struct {
 	*Base
-	sessions       *SessionManager
 	ProtocolClosed chan struct{}
+	sessions       *SessionManager
 	conf           *RouteConfig
 	routes         *Route
+	NetworkOpen    flux.Pipe
+	NetworkClose   flux.Pipe
+	NetworkCycle   flux.Pipe
 }
 
 //Drop drops the protocol connection
@@ -129,9 +132,12 @@ func (p *Protocol) Sessions() SessionManagerInterface {
 func BaseProtocol(desc *ProtocolDescriptor, rc *RouteConfig) *Protocol {
 	return &Protocol{
 		NewBase(desc),
-		NewSessionManager(),
 		make(chan struct{}),
+		NewSessionManager(),
 		rc,
 		NewRoute(desc.Service, rc.buffer, rc.timeout, rc.fail),
+		flux.PushSocket(0),
+		flux.PushSocket(0),
+		flux.PushSocket(0),
 	}
 }

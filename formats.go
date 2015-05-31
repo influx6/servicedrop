@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 	"regexp"
@@ -27,6 +28,15 @@ type (
 		UUID    string       `json:"uuid"`
 		Data    []byte       `json:"data"`
 		Address *net.UDPAddr `json:"address"`
+	}
+
+	//HTTPRequestPacket represent a standard http server request and responsewriter
+	HTTPRequestPacket struct {
+		Req          *http.Request
+		Res          http.ResponseWriter
+		Body         []byte
+		RequestError error
+		RequestType  string
 	}
 
 	//HTTPPacket represents a resolved http request contain the body,req and res object
@@ -270,5 +280,73 @@ func WhenFTPClient(fx func(*sftp.Client, flux.ActionInterface)) FluxCallback {
 		}
 
 		fx(rq, next)
+	}
+}
+
+//CollectHTTPBody takes a requests and retrieves the body from the into a gridpacket object
+func CollectHTTPBody(r *http.Request, rw http.ResponseWriter) *HTTPRequestPacket {
+	content, ok := r.Header["Content-Type"]
+	muxcontent := strings.Join(content, ";")
+	wind := strings.Index(muxcontent, "application/x-www-form-urlencode")
+	mind := strings.Index(muxcontent, "multipart/form-data")
+
+	var reqtype string
+	var buff []byte
+	var rerr error
+
+	if ok {
+
+		jsn := strings.Index(muxcontent, "application/json")
+
+		if ok {
+
+			if jsn != -1 {
+				reqtype = "json"
+			}
+
+			if wind != -1 {
+				if err := r.ParseForm(); err != nil {
+					log.Println("Request Read Form Error", err)
+					rerr = err
+				} else {
+					reqtype = "form"
+				}
+			}
+
+			if mind != -1 {
+				if err := r.ParseMultipartForm(32 << 20); err != nil {
+					log.Println("Request Read MultipartForm Error", err)
+					rerr = err
+				} else {
+					reqtype = "multipart"
+				}
+			}
+
+			if mind == -1 && wind == -1 && r.Body != nil {
+
+				buff = make([]byte, r.ContentLength)
+				_, err := r.Body.Read(buff)
+
+				if reqtype == "" {
+					reqtype = "binary"
+				}
+
+				if err != nil {
+					if err != io.EOF {
+						log.Println("Request Read Body Error", err)
+						rerr = err
+					}
+				}
+			}
+		}
+
+	}
+
+	return &HTTPRequestPacket{
+		r,
+		rw,
+		buff,
+		rerr,
+		reqtype,
 	}
 }
