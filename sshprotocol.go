@@ -23,6 +23,7 @@ type (
 	//SSHProtocol handles the server connection of the ssh protcol
 	SSHProtocol struct {
 		*Protocol
+		NetworkReaders   flux.Pipe
 		NetworkChannels  flux.Pipe
 		NetworkOutbounds flux.Pipe
 		conf             *ssh.ServerConfig
@@ -81,6 +82,13 @@ type (
 		MaseterCloser    chan struct{}
 		MasterReqChannel <-chan *ssh.Request
 		Pty              *Pty
+	}
+
+	//ChannelReader is used to send the readers for using the channels
+	ChannelReader struct {
+		Master  ssh.Channel
+		Slave   ssh.Channel
+		Session SSHSession
 	}
 
 	//ChannelPacket is used to handle off new channel requests from the ssh-server
@@ -242,6 +250,12 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 			}
 		}
 
+		s.NetworkReaders.Emit(&ChannelReader{
+			nc.MasterChan,
+			rcChannel,
+			session,
+		})
+
 		go func() {
 			io.Copy(rcChannel, wrapMaster)
 			copyCloser.Do(copyCloseFn)
@@ -312,6 +326,7 @@ func RSASSHProtocol(rc *RouteConfig, service, addr string, port int, rsaFile str
 		BaseProtocol(desc, rc),
 		flux.PushSocket(0),
 		flux.PushSocket(0),
+		flux.PushSocket(0),
 		conf,
 		nil,
 	}
@@ -345,6 +360,7 @@ func PasswordSSHProtocol(rc *RouteConfig, service, addr string, port int, rsaFil
 
 	sd := &SSHProtocol{
 		BaseProtocol(desc, rc),
+		flux.PushSocket(0),
 		flux.PushSocket(0),
 		flux.PushSocket(0),
 		conf,
