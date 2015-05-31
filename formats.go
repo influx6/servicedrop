@@ -83,6 +83,8 @@ type (
 		Start() time.Time
 		End() time.Time
 		Reader() io.ReadCloser
+		Incoming() flux.StreamInterface
+		Outgoing() flux.StreamInterface
 		Close()
 	}
 )

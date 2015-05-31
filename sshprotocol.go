@@ -86,9 +86,8 @@ type (
 
 	//ChannelReader is used to send the readers for using the channels
 	ChannelReader struct {
-		Master  ssh.Channel
-		Slave   ssh.Channel
 		Session SSHSession
+		Closer  chan struct{}
 	}
 
 	//ChannelPacket is used to handle off new channel requests from the ssh-server
@@ -240,6 +239,12 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 		wrapMaster := io.ReadCloser(nc.MasterChan)
 		wrapSlave := io.ReadCloser(rcChannel)
 
+		log.Printf("Sending Network ChannelReader!")
+		s.NetworkReaders.Emit(&ChannelReader{
+			session,
+			copyState,
+		})
+
 		if cmk != nil {
 			rw, err := cmk(nc, session, rcChannel)
 
@@ -250,20 +255,18 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 			}
 		}
 
-		log.Printf("Sending Network ChannelReader!")
-		s.NetworkReaders.Emit(&ChannelReader{
-			nc.MasterChan,
-			rcChannel,
-			session,
-		})
+		masterReader := io.MultiReader(wrapMaster, session.Outgoing())
+		slaveReader := io.MultiReader(wrapSlave, session.Incoming())
 
 		go func() {
-			io.Copy(rcChannel, wrapMaster)
+			// io.Copy(rcChannel,wrapMaster)
+			io.Copy(rcChannel, masterReader)
 			copyCloser.Do(copyCloseFn)
 		}()
 
 		go func() {
-			io.Copy(nc.MasterChan, wrapSlave)
+			// io.Copy(nc.MasterChan, wrapSlave)
+			io.Copy(nc.MasterChan, slaveReader)
 			copyCloser.Do(copyCloseFn)
 		}()
 
