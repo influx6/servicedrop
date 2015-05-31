@@ -250,6 +250,7 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 			}
 		}
 
+		log.Printf("Sending Network ChannelReader!")
 		s.NetworkReaders.Emit(&ChannelReader{
 			nc.MasterChan,
 			rcChannel,
