@@ -255,8 +255,8 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 			}
 		}
 
-		session.Incoming().StreamReader(wrapSlave)
-		session.Outgoing().StreamReader(wrapMaster)
+		session.Incoming().StreamWriter(rcChannel)
+		session.Outgoing().StreamWriter(nc.MasterChan)
 
 		session.Incoming().Subscribe(func(data interface{}, _ *flux.Sub) {
 			log.Printf("incomming: %+v", data)
@@ -268,15 +268,17 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 
 		go func() {
 			// io.Copy(rcChannel, wrapMaster)
+			io.Copy(session.Incoming(), wrapMaster)
 			// io.Copy(rcChannel, masterReader)
-			io.Copy(rcChannel, io.ReadCloser(session.Outgoing()))
+			// io.Copy(rcChannel, io.ReadCloser(session.Outgoing()))
 			copyCloser.Do(copyCloseFn)
 		}()
 
 		go func() {
 			// io.Copy(nc.MasterChan, wrapSlave)
+			io.Copy(session.Outgoing(), wrapSlave)
 			// io.Copy(nc.MasterChan, slaveReader)
-			io.Copy(nc.MasterChan, io.ReadCloser(session.Incoming()))
+			// io.Copy(nc.MasterChan, io.ReadCloser(session.Incoming()))
 			copyCloser.Do(copyCloseFn)
 		}()
 
