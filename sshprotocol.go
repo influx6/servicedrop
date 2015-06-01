@@ -187,7 +187,7 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 					}
 
 					// log.Println("Master Channel released a request:", mrq.Type)
-					go replyMaker(mrq, rcChannel)
+					replyMaker(mrq, rcChannel)
 
 					switch mrq.Type {
 					case "exit-status":
@@ -202,7 +202,7 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 					}
 
 					// log.Println("Client Channel released a request:", rq.Type)
-					go replyMaker(rq, nc.MasterChan)
+					replyMaker(rq, nc.MasterChan)
 
 					switch rq.Type {
 					case "exit-status":
@@ -251,8 +251,8 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 
 		log.Printf("Connecting Sessions for (%s) At (%s) Packet Snifers", session.User(), session.Addr())
 
-		go session.Incoming().StreamWriter(rcChannel)
-		go session.Outgoing().StreamWriter(nc.MasterChan)
+		session.Incoming().StreamWriter(rcChannel)
+		session.Outgoing().StreamWriter(nc.MasterChan)
 
 		go func() {
 			// io.Copy(rcChannel, wrapMaster)
