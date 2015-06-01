@@ -80,7 +80,7 @@ type (
 		UUID() string
 		Addr() string
 		User() string
-		Pass() interface{}
+		Pass() []byte
 		Start() time.Time
 		End() time.Time
 		Reader() io.ReadCloser
