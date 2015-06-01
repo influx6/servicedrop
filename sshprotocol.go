@@ -239,11 +239,11 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 		wrapMaster := io.ReadCloser(nc.MasterChan)
 		wrapSlave := io.ReadCloser(rcChannel)
 
-		log.Printf("Sending Network ChannelReader!")
-		s.NetworkReaders.Emit(&ChannelReader{
-			session,
-			copyState,
-		})
+		// log.Printf("Sending Network ChannelReader!")
+		// s.NetworkReaders.Emit(&ChannelReader{
+		// 	session,
+		// 	copyState,
+		// })
 
 		if cmk != nil {
 			rw, err := cmk(nc, session, rcChannel)
