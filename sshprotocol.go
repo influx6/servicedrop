@@ -239,11 +239,11 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 		wrapMaster := io.ReadCloser(nc.MasterChan)
 		wrapSlave := io.ReadCloser(rcChannel)
 
-		// log.Printf("Sending Network ChannelReader!")
-		// s.NetworkReaders.Emit(&ChannelReader{
-		// 	session,
-		// 	copyState,
-		// })
+		// masterRead := make(chan []byte)
+		// slaveRead := make(chan []byte)
+
+		masterReader := io.MultiReader(wrapMaster, session.Outgoing())
+		slaveReader := io.MultiReader(wrapSlave, session.Incoming())
 
 		if cmk != nil {
 			rw, err := cmk(nc, session, rcChannel)
@@ -255,9 +255,6 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 			}
 		}
 
-		// masterReader := io.MultiReader(wrapMaster, session.Outgoing())
-		// slaveReader := io.MultiReader(wrapSlave, session.Incoming())
-
 		session.Incoming().Subscribe(func(data interface{}, _ *flux.Sub) {
 			log.Printf("incomming: %+v", data)
 		})
@@ -267,22 +264,28 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 		})
 
 		go func() {
-			io.Copy(rcChannel, wrapMaster)
-			// io.Copy(rcChannel, masterReader)
+			// io.Copy(rcChannel, wrapMaster)
+			io.Copy(rcChannel, masterReader)
 			copyCloser.Do(copyCloseFn)
 		}()
 
 		go func() {
-			io.Copy(nc.MasterChan, wrapSlave)
-			// io.Copy(nc.MasterChan, slaveReader)
+			// io.Copy(nc.MasterChan, wrapSlave)
+			io.Copy(nc.MasterChan, slaveReader)
 			copyCloser.Do(copyCloseFn)
 		}()
 
 		go func() {
 			<-copyState
+
+			log.Println("Closing Incoming and Outgoing monitory Channels!")
+			defer session.Incoming().Close()
+			defer session.Outgoing().Close()
+
 			log.Println("Closing all Channels!")
 			defer wrapMaster.Close()
 			defer wrapSlave.Close()
+
 			defer log.Println("closing session connection")
 			defer session.Connection().Close()
 
