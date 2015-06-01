@@ -269,14 +269,14 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 		go func() {
 			// io.Copy(rcChannel, wrapMaster)
 			// io.Copy(rcChannel, masterReader)
-			io.Copy(rcChannel, session.Outgoing())
+			io.Copy(rcChannel, io.ReadCloser(session.Outgoing()))
 			copyCloser.Do(copyCloseFn)
 		}()
 
 		go func() {
 			// io.Copy(nc.MasterChan, wrapSlave)
 			// io.Copy(nc.MasterChan, slaveReader)
-			io.Copy(nc.MasterChan, session.Incoming())
+			io.Copy(nc.MasterChan, io.ReadCloser(session.Incoming()))
 			copyCloser.Do(copyCloseFn)
 		}()
 
