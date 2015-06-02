@@ -251,18 +251,23 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 
 		log.Printf("Connecting Sessions for (%s) At (%s) Packet Snifers", session.User(), session.Addr())
 
-		session.Incoming().StreamWriter(rcChannel)
-		session.Outgoing().StreamWriter(nc.MasterChan)
+		// session.Incoming().StreamWriter(rcChannel)
+		// session.Outgoing().StreamWriter(nc.MasterChan)
+
+		mwriter := io.MultiWriter(nc.MasterChan, session.Outgoing())
+		swriter := io.MultiWriter(rcChannel, session.Incoming())
 
 		go func() {
 			// io.Copy(rcChannel, wrapMaster)
-			io.Copy(session.Incoming(), wrapMaster)
+			// io.Copy(session.Incoming(), wrapMaster)
+			io.Copy(swriter, wrapMaster)
 			copyCloser.Do(copyCloseFn)
 		}()
 
 		go func() {
 			// io.Copy(nc.MasterChan, wrapSlave)
-			io.Copy(session.Outgoing(), wrapSlave)
+			// io.Copy(session.Outgoing(), wrapSlave)
+			io.Copy(mwriter, wrapSlave)
 			copyCloser.Do(copyCloseFn)
 		}()
 
