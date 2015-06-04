@@ -713,11 +713,21 @@ func (s *SSHProtocol) Dial() error {
 	func() {
 		go func() {
 			<-s.ProtocolClosed
+			defer func() {
+				err := recover()
+
+				if err != nil {
+					log.Println("Recovered from Panic:", err)
+					return
+				}
+
+				return
+			}()
 			// conn.Close()
 			// con.Close()
 			log.Println("killing Process!")
 			tcpcon.Close()
-			// panic("killing all processes")
+			panic("killing all processes")
 		}()
 
 	loopmaker:
@@ -758,24 +768,6 @@ func (s *SSHProtocol) Dial() error {
 //Drop ends the connection used by this service
 func (s *SSHProtocol) Drop() error {
 	close(s.ProtocolClosed)
-
-	// go func() {
-	// 	err := recover()
-	//
-	// 	if err != nil {
-	// 		log.Printf("Process died due to (%+v)", err)
-	// 	}
-	// }()
-	//
-	// panic("close all connections")
-	// if s.tcpCon != nil {
-	// 	s.tcpCon.Close()
-	// }
-	//
-	// for _, sv := range s.servers {
-	// 	sv.Close()
-	// }
-
 	return nil
 }
 
