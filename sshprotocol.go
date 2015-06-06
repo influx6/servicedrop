@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"unsafe"
 	// "github.com/pkg/sftp"
+	"code.google.com/p/go-uuid/uuid"
 	"github.com/honeycast/lxcontroller"
 	"github.com/influx6/flux"
 	"github.com/kr/pty"
@@ -48,14 +49,6 @@ type (
 		Tty *os.File
 		Pfd *os.File
 	}
-
-	// //ClientCycle handles managing of connection cycle
-	// ClientCycle struct {
-	// 	Network     *ChannelNetwork //current channelnetwork in use
-	// 	Session     SSHSession
-	// 	End         func() //when called ends the cycle
-	// 	CloseSignal chan struct{}
-	// }
 
 	//SSHSession defines a standard session contain information used by lxc servers
 	SSHSession interface {
@@ -141,6 +134,9 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 
 		// defer session.Connection().Close()
 
+		pid := uuid.New()
+		session.UseType(pid)
+
 		client := session.Connection()
 
 		log.Printf("Session connection gained: %s, OpenChannel for %s", client.RemoteAddr(), nc.MasterNewChan.ChannelType())
@@ -155,20 +151,15 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 		log.Println("Success Creating Client proxy channel:", err)
 
 		replyMaker := func(rq *ssh.Request, dest ssh.Channel) {
-			// log.Println("Sending ssh Request for:", rq.Type)
-
 			do, err := dest.SendRequest(rq.Type, rq.WantReply, rq.Payload)
 
 			if err != nil {
 				log.Printf("Request proxy failed on: (%s) (%+v) with error (%+v)", nc.Conn.RemoteAddr(), rq.Type, err)
 			}
 
-			// log.Printf("Request proxy with result: (%v)", do)
-
 			if rq.WantReply {
 				rq.Reply(do, nil)
 			}
-
 		}
 
 		go func() {
@@ -181,12 +172,9 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 					break clientloop
 				case mrq, ok := <-nc.MasterReqChannel:
 					if !ok {
-						// log.Println("Master Channel did not release a request!", mrq, ok)
 						break clientloop
-						// return
 					}
 
-					// log.Println("Master Channel released a request:", mrq.Type)
 					replyMaker(mrq, rcChannel)
 
 					switch mrq.Type {
@@ -196,12 +184,9 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 
 				case rq, ok := <-rcReq:
 					if !ok {
-						// log.Println("Client Channel did not release a request!", rq, ok)
 						break clientloop
-						// return
 					}
 
-					// log.Println("Client Channel released a request:", rq.Type)
 					replyMaker(rq, nc.MasterChan)
 
 					switch rq.Type {

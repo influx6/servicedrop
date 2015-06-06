@@ -77,6 +77,8 @@ type (
 
 	//Session is a map that can contain the data needed for use
 	Session interface {
+		UseType(string)
+		Type() string
 		UUID() string
 		Addr() string
 		User() string
