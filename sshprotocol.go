@@ -117,6 +117,7 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 			return
 		}
 
+		log.Println("Network Open received network packet, prepare.....")
 		si, err := base.Sessions().GetSession(nc.Conn.RemoteAddr())
 
 		if err != nil {
@@ -684,6 +685,8 @@ func AddExecBehaviour(s *SSHProtocol) {
 //Dial creates and connects the ssh server with the given details from the ProtocolDescription
 func (s *SSHProtocol) Dial() error {
 
+	log.Printf("Loading Connection Processes....")
+
 	tcpcon, err := net.Listen("tcp", s.Descriptor().Host())
 
 	if err != nil {
@@ -723,6 +726,8 @@ func (s *SSHProtocol) Dial() error {
 				log.Println(fmt.Sprintf("Connection Accept Error: -> %v", err))
 				continue
 			}
+
+			log.Printf("Accepting Connection Request from %s", con.RemoteAddr())
 
 			conn, schan, req, err := ssh.NewServerConn(con, s.conf)
 
