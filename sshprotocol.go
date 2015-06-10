@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -749,6 +750,8 @@ func (s *SSHProtocol) Dial() error {
 			// log.Println("Emitting Outof Bound")
 			s.NetworkOutbounds.Emit(&RequestPacket{conn, req})
 
+			//dont starve the cpu
+			runtime.Gosched()
 		}
 	}()
 
