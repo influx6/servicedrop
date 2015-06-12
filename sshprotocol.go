@@ -751,7 +751,7 @@ func (s *SSHProtocol) Dial() error {
 			s.NetworkOutbounds.Emit(&RequestPacket{conn, req})
 
 			//dont starve the cpu
-			runtime.Gosched()
+			
 		}
 	}()
 
