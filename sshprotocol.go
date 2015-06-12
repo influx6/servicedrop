@@ -2,6 +2,7 @@ package servicedrop
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -11,6 +12,7 @@ import (
 	"os/exec"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 	// "github.com/pkg/sftp"
 	"code.google.com/p/go-uuid/uuid"
@@ -104,6 +106,9 @@ type (
 
 var (
 	shell = os.Getenv("SHELL")
+
+	//ErrTimeout represents a timeout error
+	ErrTimeout = errors.New("Timeout expired!")
 )
 
 //ClientProxySSHProtocol builds on top of the base proxy
@@ -963,4 +968,64 @@ func AddOutBoundRequestManager(s *SSHProtocol) {
 		// log.Printf("Discarding Out-Of-Bands Requests: %v", packet)
 		ssh.DiscardRequests(packet.Reqs)
 	})
+}
+
+//MakeDial returns two channels where one returns a ssh.Client and the other
+//and error
+func MakeDial(ms time.Duration, ip string, conf *ssh.ClientConfig) (*ssh.Client, error) {
+	cons := make(chan *ssh.Client)
+	errs := make(chan error)
+	do := new(sync.Once)
+
+	var con net.Conn
+	var sc ssh.Conn
+	var chans <-chan ssh.NewChannel
+	var req <-chan *ssh.Request
+	var err error
+
+	go func() {
+		con, err = net.DialTimeout("tcp", ip, ms)
+
+		if err != nil {
+			log.Printf("MakeDial for %s  net.Dial errored out with: %+v", ip, err)
+			do.Do(func() {
+				errs <- err
+			})
+			return
+		}
+
+		sc, chans, req, err = ssh.NewClientConn(con, ip, conf)
+
+		if err != nil {
+			log.Printf("MakeDial for %s during ssh.NewClientConn failed: %+v", ip, err)
+			do.Do(func() {
+				errs <- err
+			})
+			return
+		}
+
+		log.Printf("MakeDial initiating NewClient for %s", ip)
+		do.Do(func() {
+			cons <- ssh.NewClient(sc, chans, req)
+		})
+		log.Println("NewClient Created And Received!")
+	}()
+
+	select {
+	case err := <-errs:
+		return nil, err
+	case con := <-cons:
+		return con, nil
+	case <-time.After(ms):
+		do.Do(func() {
+			defer con.Close()
+			if sc != nil {
+				defer sc.Close()
+			}
+			log.Printf("MakeDial Connection TimeOut Reached for %s", ip)
+			log.Printf("MakeDial for %s  timeout expired, will close connection", ip)
+		})
+		return nil, ErrTimeout
+
+	}
 }
