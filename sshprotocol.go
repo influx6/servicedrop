@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"runtime"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -751,7 +750,7 @@ func (s *SSHProtocol) Dial() error {
 			s.NetworkOutbounds.Emit(&RequestPacket{conn, req})
 
 			//dont starve the cpu
-			
+
 		}
 	}()
 
