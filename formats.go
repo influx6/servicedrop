@@ -79,12 +79,14 @@ type (
 	PipeWriter struct {
 		writer  *io.PipeWriter
 		writing func()
+		closing func()
 	}
 
 	//PipeReader holds the reader of a pipe together
 	PipeReader struct {
 		reader  *io.PipeReader
 		reading func()
+		closing func()
 	}
 
 	//Pipe holds the reader and writer of a pipe together
@@ -130,15 +132,31 @@ var (
 func NewPipe(read func(*Pipe), write func(*Pipe)) (px *Pipe) {
 	r, w := io.Pipe()
 
+	resetd := false
+
 	reader := &PipeReader{r, func() {
 		if read != nil {
 			read(px)
+		}
+	}, func() {
+		if resetd {
+			resetd = false
+		} else {
+			px.ResetPipe()
+			resetd = true
 		}
 	}}
 
 	writer := &PipeWriter{w, func() {
 		if write != nil {
 			write(px)
+		}
+	}, func() {
+		if resetd {
+			resetd = false
+		} else {
+			px.ResetPipe()
+			resetd = true
 		}
 	}}
 
@@ -157,6 +175,25 @@ func (p *Pipe) Close() error {
 	}
 
 	return errx
+}
+
+//ResetPipe takes a new pipe to use
+func (p *Pipe) ResetPipe() {
+	r, w := io.Pipe()
+	p.Reader.ResetReader(r)
+	p.Writer.ResetWriter(w)
+}
+
+//ResetReader takes a new pipe to use
+func (p *PipeReader) ResetReader(r *io.PipeReader) {
+	p.Close()
+	p.reader = r
+}
+
+//ResetWriter takes a new pipe to use
+func (p *PipeWriter) ResetWriter(r *io.PipeWriter) {
+	p.Close()
+	p.writer = r
 }
 
 //CloseWithError closes the internal pipe with a given error
