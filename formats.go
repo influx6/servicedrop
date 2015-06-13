@@ -75,6 +75,24 @@ type (
 		sessions *flux.SecureMap
 	}
 
+	//PipeWriter holds the writer of a pipe together
+	PipeWriter struct {
+		*io.PipeWriter
+		writing func()
+	}
+
+	//PipeReader holds the reader of a pipe together
+	PipeReader struct {
+		*io.PipeReader
+		reading func()
+	}
+
+	//Pipe holds the reader and writer of a pipe together
+	Pipe struct {
+		Reader *PipeReader
+		Writer *PipeWriter
+	}
+
 	//Session is a map that can contain the data needed for use
 	Session interface {
 		UseType(string)
@@ -85,9 +103,8 @@ type (
 		Pass() []byte
 		Start() time.Time
 		End() time.Time
-		Reader() io.ReadCloser
-		Incoming() flux.StreamInterface
-		Outgoing() flux.StreamInterface
+		Incoming() *Pipe
+		Outgoing() *Pipe
 		Close()
 	}
 )
@@ -109,8 +126,44 @@ var (
 	EndSlash = regexp.MustCompile(`/+$`)
 )
 
-//ConnectionProc is the type used by the proxy-ssh-protocol for behaviour
-// type ConnectionProc func()
+//NewPipe returns a new pipe
+func NewPipe(read func(*Pipe), write func(*Pipe)) (px *Pipe) {
+	r, w := io.Pipe()
+
+	reader := &PipeReader{r, func() { read(px) }}
+
+	writer := &PipeWriter{w, func() { write(px) }}
+
+	px = &Pipe{Reader: reader, Writer: writer}
+
+	return
+}
+
+//Close closes both the reader and writer
+func (p *Pipe) Close() error {
+	err := p.Reader.Close()
+	errx := p.Writer.Close()
+
+	if err != nil {
+		return err
+	}
+
+	return errx
+}
+
+//Read reads the data into the byte slice and calls PipeReader reading() func
+func (p *PipeReader) Read(b []byte) (int, error) {
+	n, err := p.PipeReader.Read(b)
+	p.reading()
+	return n, err
+}
+
+//Write write the data from the byte slice and calls PipeWriter writing() func
+func (p *PipeWriter) Write(b []byte) (int, error) {
+	n, err := p.PipeWriter.Write(b)
+	p.writing()
+	return n, err
+}
 
 //KeyAuthenticationCallback is the type for the ssh-server key-callback function
 type KeyAuthenticationCallback func(ProtocolInterface, ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error)
