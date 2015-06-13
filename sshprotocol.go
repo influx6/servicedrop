@@ -267,8 +267,7 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 
 			log.Println("Closing Incoming and Outgoing monitory Channels!")
 
-			// defer session.Incoming().Close()
-			// defer session.Outgoing().Close()
+			session.Close()
 
 			log.Println("Closing all Channels!")
 			defer wrapMaster.Close()
