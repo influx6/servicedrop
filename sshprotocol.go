@@ -243,7 +243,7 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 		log.Printf("Connecting Sessions for (%s) At (%s) Packet Snifers", session.User(), session.Addr())
 
 		outwriter := session.Outgoing()
-		inwriter := session.Outgoing()
+		inwriter := session.Incoming()
 
 		mwriter := io.MultiWriter(nc.MasterChan, outwriter)
 		swriter := io.MultiWriter(rcChannel, inwriter)
