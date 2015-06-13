@@ -130,9 +130,17 @@ var (
 func NewPipe(read func(*Pipe), write func(*Pipe)) (px *Pipe) {
 	r, w := io.Pipe()
 
-	reader := &PipeReader{r, func() { read(px) }}
+	reader := &PipeReader{r, func() {
+		if read != nil {
+			read(px)
+		}
+	}}
 
-	writer := &PipeWriter{w, func() { write(px) }}
+	writer := &PipeWriter{w, func() {
+		if write != nil {
+			write(px)
+		}
+	}}
 
 	px = &Pipe{Reader: reader, Writer: writer}
 
@@ -153,19 +161,19 @@ func (p *Pipe) Close() error {
 
 //Read reads the data into the byte slice and calls PipeReader reading() func
 func (p *PipeReader) Read(b []byte) (int, error) {
-	n, err := p.PipeReader.Read(b)
 	if p.reading != nil {
-		p.reading()
+		go p.reading()
 	}
+	n, err := p.PipeReader.Read(b)
 	return n, err
 }
 
 //Write write the data from the byte slice and calls PipeWriter writing() func
 func (p *PipeWriter) Write(b []byte) (int, error) {
-	n, err := p.PipeWriter.Write(b)
 	if p.writing != nil {
-		p.writing()
+		go p.writing()
 	}
+	n, err := p.PipeWriter.Write(b)
 	return n, err
 }
 
