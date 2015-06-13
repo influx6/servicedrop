@@ -154,14 +154,18 @@ func (p *Pipe) Close() error {
 //Read reads the data into the byte slice and calls PipeReader reading() func
 func (p *PipeReader) Read(b []byte) (int, error) {
 	n, err := p.PipeReader.Read(b)
-	p.reading()
+	if p.reading != nil {
+		p.reading()
+	}
 	return n, err
 }
 
 //Write write the data from the byte slice and calls PipeWriter writing() func
 func (p *PipeWriter) Write(b []byte) (int, error) {
 	n, err := p.PipeWriter.Write(b)
-	p.writing()
+	if p.writing != nil {
+		p.writing()
+	}
 	return n, err
 }
 
