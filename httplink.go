@@ -36,6 +36,7 @@ func NewHTTPSecureLink(prefix string, addr string, port int, trans *http.Transpo
 
 //Request is the base level method upon which all protocolink requests are handled
 func (h *HTTPProtocolLink) Request(path string, body io.Reader) flux.ActionStackInterface {
+	log.Printf("Initiating HTTPLink: New HTTP Request for %s", path)
 	addr := fmt.Sprintf("%s:%d/%s", h.Descriptor().Address, h.Descriptor().Port, h.Descriptor().Service)
 	addr = ExcessSlash.ReplaceAllString(addr, "/")
 	addr = EndSlash.ReplaceAllString(addr, "")
