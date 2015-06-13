@@ -77,13 +77,13 @@ type (
 
 	//PipeWriter holds the writer of a pipe together
 	PipeWriter struct {
-		*io.PipeWriter
+		writer  *io.PipeWriter
 		writing func()
 	}
 
 	//PipeReader holds the reader of a pipe together
 	PipeReader struct {
-		*io.PipeReader
+		reader  *io.PipeReader
 		reading func()
 	}
 
@@ -159,12 +159,44 @@ func (p *Pipe) Close() error {
 	return errx
 }
 
+//CloseWithError closes the internal pipe with a given error
+func (p *PipeReader) CloseWithError(err error) error {
+	if p.reader != nil {
+		return p.reader.CloseWithError(err)
+	}
+	return err
+}
+
+//CloseWithError closes the internal pipe with a given error
+func (p *PipeWriter) CloseWithError(err error) error {
+	if p.writer != nil {
+		return p.writer.CloseWithError(err)
+	}
+	return err
+}
+
+//Close closes the internal pipe reader
+func (p *PipeWriter) Close() error {
+	if p.writer != nil {
+		return p.writer.Close()
+	}
+	return nil
+}
+
+//Close closes the internal pipe reader
+func (p *PipeReader) Close() error {
+	if p.reader != nil {
+		return p.reader.Close()
+	}
+	return nil
+}
+
 //Read reads the data into the byte slice and calls PipeReader reading() func
 func (p *PipeReader) Read(b []byte) (int, error) {
 	if p.reading != nil {
 		go p.reading()
 	}
-	n, err := p.PipeReader.Read(b)
+	n, err := p.reader.Read(b)
 	return n, err
 }
 
@@ -173,7 +205,7 @@ func (p *PipeWriter) Write(b []byte) (int, error) {
 	if p.writing != nil {
 		go p.writing()
 	}
-	n, err := p.PipeWriter.Write(b)
+	n, err := p.writer.Write(b)
 	return n, err
 }
 
