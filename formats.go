@@ -105,8 +105,8 @@ type (
 		Pass() []byte
 		Start() time.Time
 		End() time.Time
-		Incoming() *Pipe
-		Outgoing() *Pipe
+		Incoming() io.ReadWriteCloser
+		Outgoing() io.ReadWriteCloser
 		Close()
 	}
 )
