@@ -263,8 +263,6 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 		}()
 
 		go func() {
-			<-copyState
-
 			defer func() {
 				log.Println("Closing Incoming and Outgoing monitory Channels!")
 				defer base.NetworkClose.Emit(nc)
@@ -277,11 +275,8 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 
 				log.Println("closing session connection")
 				session.Connection().Close()
-
-				// session.end = time.Now()
-
 			}()
-
+			<-copyState
 		}()
 
 		return
