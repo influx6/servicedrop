@@ -251,33 +251,36 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 		go func() {
 			// io.Copy(rcChannel, wrapMaster)
 			// io.Copy(session.Incoming(), wrapMaster)
+			defer copyCloser.Do(copyCloseFn)
 			io.Copy(swriter, wrapMaster)
-			copyCloser.Do(copyCloseFn)
 		}()
 
 		go func() {
 			// io.Copy(nc.MasterChan, wrapSlave)
 			// io.Copy(session.Outgoing(), wrapSlave)
+			defer copyCloser.Do(copyCloseFn)
 			io.Copy(mwriter, wrapSlave)
-			copyCloser.Do(copyCloseFn)
 		}()
 
 		go func() {
 			<-copyState
 
-			log.Println("Closing Incoming and Outgoing monitory Channels!")
+			defer func() {
+				log.Println("Closing Incoming and Outgoing monitory Channels!")
 
-			session.Close()
+				session.Close()
 
-			log.Println("Closing all Channels!")
-			defer wrapMaster.Close()
-			defer wrapSlave.Close()
+				log.Println("Closing all Channels!")
+				wrapMaster.Close()
+				wrapSlave.Close()
 
-			defer log.Println("closing session connection")
-			defer session.Connection().Close()
+				log.Println("closing session connection")
+				session.Connection().Close()
 
-			// session.end = time.Now()
-			base.NetworkClose.Emit(nc)
+				// session.end = time.Now()
+				base.NetworkClose.Emit(nc)
+
+			}()
 
 		}()
 
