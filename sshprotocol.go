@@ -31,6 +31,8 @@ type (
 		NetworkOutbounds flux.Pipe
 		conf             *ssh.ServerConfig
 		tcpCon           net.Listener
+		Before           *NetworkReflex
+		After            *NetworkReflex
 	}
 
 	//SSHProxyProtocol handles the sshprotcol created and proxies all its connection
@@ -326,6 +328,8 @@ func RSASSHProtocol(rc *RouteConfig, service, addr string, port int, rsaFile str
 		flux.PushSocket(0),
 		conf,
 		nil,
+		nil,
+		nil,
 	}
 
 	setupServer(sd)
@@ -362,14 +366,11 @@ func PasswordSSHProtocol(rc *RouteConfig, service, addr string, port int, rsaFil
 		flux.PushSocket(0),
 		conf,
 		nil,
+		nil,
+		nil,
 	}
 
 	setupServer(sd)
-
-	// sd.Routes().Sub(func(r *Request, s *flux.Sub) {
-	// 	log.Printf("req: %+v %+v %+v", r.Paths, r.Payload, r)
-	//
-	// })
 
 	return sd
 }
@@ -719,7 +720,16 @@ func (s *SSHProtocol) Dial() error {
 
 	loopmaker:
 		for {
+
 			con, err := tcpcon.Accept()
+
+			if s.Before != nil {
+				err := s.Before.Do(con)
+				if err != nil {
+					log.Println(fmt.Sprintf("Connection Accept Error: -> %v", err))
+					continue
+				}
+			}
 
 			if err != nil {
 				log.Println(fmt.Sprintf("Connection Accept Error: -> %v", err))
@@ -749,6 +759,12 @@ func (s *SSHProtocol) Dial() error {
 			s.NetworkOutbounds.Emit(&RequestPacket{conn, req})
 
 			//dont starve the cpu
+			if s.After != nil {
+				err := s.After.Do(con)
+				if err != nil {
+					log.Println(fmt.Sprintf("Connection: After Error: -> %v", err))
+				}
+			}
 
 		}
 	}()

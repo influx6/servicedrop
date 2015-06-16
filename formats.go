@@ -21,6 +21,19 @@ import (
 
 type (
 
+	//ConnDoFunc represents a tcp function type
+	ConnDoFunc func(net.Conn, error)
+
+	//ConnWhenFunc represents a tcp function type
+	ConnWhenFunc func(net.Conn) error
+
+	//NetworkReflex provides a means of allocating before and after actions
+	//into a ssh protocol
+	NetworkReflex struct {
+		when ConnWhenFunc
+		done ConnDoFunc
+	}
+
 	//UDPPacket represents a udp packet information
 	UDPPacket struct {
 		Path    string       `json:"path"`
@@ -127,6 +140,21 @@ var (
 	//EndSlash is a regexp for ending slashes /
 	EndSlash = regexp.MustCompile(`/+$`)
 )
+
+//NewNetworkReflex returns a new NetworkReflex
+func NewNetworkReflex(when ConnWhenFunc, do ConnDoFunc) *NetworkReflex {
+	return &NetworkReflex{
+		when: when,
+		done: do,
+	}
+}
+
+//Do executes the when and performs the do of the reflext
+func (nx *NetworkReflex) Do(t net.Conn) error {
+	err := nx.when(t)
+	nx.done(t, err)
+	return err
+}
 
 //NewPipe returns a new pipe
 func NewPipe(read func(*Pipe), write func(*Pipe)) (px *Pipe) {
