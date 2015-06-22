@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"runtime/debug"
 	"sync"
 	"syscall"
 	"time"
@@ -705,7 +706,7 @@ func (s *SSHProtocol) Dial() error {
 				err := recover()
 
 				if err != nil {
-					log.Println("Recovered from Panic:", err)
+					log.Println("Recovered from Panic:", err, debug.Stack())
 					return
 				}
 
@@ -741,7 +742,7 @@ func (s *SSHProtocol) Dial() error {
 			conn, schan, req, err := ssh.NewServerConn(con, s.ServerConf)
 
 			if err != nil {
-				log.Println(fmt.Sprintf("Unable to accept connection: -> %v", err))
+				log.Println(fmt.Sprintf("TCPACCEPT-STAGE: Unable to accept connection: -> %v", err))
 				continue loopmaker
 			}
 
