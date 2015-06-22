@@ -698,76 +698,74 @@ func (s *SSHProtocol) Dial() error {
 
 	defer tcpcon.Close()
 
-	func() {
-		go func() {
-			<-s.ProtocolClosed
-			defer func() {
-				err := recover()
+	go func() {
+		<-s.ProtocolClosed
+		defer func() {
+			err := recover()
 
-				if err != nil {
-					log.Println("Recovered from Panic:", err)
-					return
-				}
-
+			if err != nil {
+				log.Println("Recovered from Panic:", err)
 				return
-			}()
-			// conn.Close()
-			// con.Close()
-			log.Println("killing Process!")
-			tcpcon.Close()
-			panic("killing all processes")
-		}()
-
-	loopmaker:
-		for {
-
-			con, err := tcpcon.Accept()
-
-			if s.Before != nil {
-				err := s.Before.Do(con)
-				if err != nil {
-					log.Println(fmt.Sprintf("Connection Accept Error: -> %v", err))
-					continue
-				}
 			}
 
+			return
+		}()
+		// conn.Close()
+		// con.Close()
+		log.Println("killing Process!")
+		tcpcon.Close()
+		panic("killing all processes")
+	}()
+
+loopmaker:
+	for {
+
+		con, err := tcpcon.Accept()
+
+		if s.Before != nil {
+			err := s.Before.Do(con)
 			if err != nil {
 				log.Println(fmt.Sprintf("Connection Accept Error: -> %v", err))
 				continue
 			}
-
-			log.Printf("Accepting Connection Request from %s", con.RemoteAddr())
-
-			conn, schan, req, err := ssh.NewServerConn(con, s.conf)
-
-			if err != nil {
-				log.Println(fmt.Sprintf("Unable to accept connection: -> %v", err))
-				continue loopmaker
-			}
-
-			if conn == nil || schan == nil || req == nil {
-				log.Println("Nill pointer encountered in NewServerConn op")
-				continue loopmaker
-			}
-
-			log.Println("New Connection created:", conn.RemoteAddr(), conn.LocalAddr())
-			// defer conn.Close()
-
-			// log.Println("Emitting New Channel")
-			s.NetworkChannels.Emit(&ChannelPacket{conn, schan})
-			// log.Println("Emitting Outof Bound")
-			s.NetworkOutbounds.Emit(&RequestPacket{conn, req})
-
-			//dont starve the cpu
-			if s.After != nil {
-				err := s.After.Do(con)
-				if err != nil {
-					log.Println(fmt.Sprintf("Connection: After Error: -> %v", err))
-				}
-			}
-
 		}
-	}()
+
+		if err != nil {
+			log.Println(fmt.Sprintf("Connection Accept Error: -> %v", err))
+			continue
+		}
+
+		log.Printf("Accepting Connection Request from %s", con.RemoteAddr())
+
+		conn, schan, req, err := ssh.NewServerConn(con, s.conf)
+
+		if err != nil {
+			log.Println(fmt.Sprintf("Unable to accept connection: -> %v", err))
+			continue loopmaker
+		}
+
+		if conn == nil || schan == nil || req == nil {
+			log.Println("Nill pointer encountered in NewServerConn op")
+			continue loopmaker
+		}
+
+		log.Println("New Connection created:", conn.RemoteAddr(), conn.LocalAddr())
+		// defer conn.Close()
+
+		// log.Println("Emitting New Channel")
+		s.NetworkChannels.Emit(&ChannelPacket{conn, schan})
+		// log.Println("Emitting Outof Bound")
+		s.NetworkOutbounds.Emit(&RequestPacket{conn, req})
+
+		//dont starve the cpu
+		if s.After != nil {
+			err := s.After.Do(con)
+			if err != nil {
+				log.Println(fmt.Sprintf("Connection: After Error: -> %v", err))
+			}
+		}
+
+	}
 
 	return err
 }
@@ -924,7 +922,7 @@ func AddProxyChannelManager(s *SSHProtocol) {
 				ch, reqs, err := curChan.Accept()
 
 				if err != nil {
-					log.Println("Error accepting channel: ", err)
+					log.Println("TCPACCEPT: Error accepting channel: ", err)
 					return
 					// continue
 				}
@@ -938,7 +936,6 @@ func AddProxyChannelManager(s *SSHProtocol) {
 					reqs,
 					nil,
 				})
-
 			}
 
 			func() {
@@ -950,7 +947,9 @@ func AddProxyChannelManager(s *SSHProtocol) {
 					case dc := <-sc:
 						if dc != nil {
 							channelProc(dc)
+							return
 						}
+						log.Println("Ending protocol action processes!")
 					default:
 						//logit
 					}
