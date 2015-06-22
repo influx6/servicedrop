@@ -31,7 +31,7 @@ type (
 		NetworkChannels  flux.Pipe
 		NetworkOutbounds flux.Pipe
 		ServerConf       *ssh.ServerConfig
-		tcpCon           net.Listener
+		TCPCon           net.Listener
 		Before           *NetworkReflex
 		After            *NetworkReflex
 	}
@@ -695,7 +695,7 @@ func (s *SSHProtocol) Dial() error {
 		// return err
 	}
 
-	s.tcpCon = tcpcon
+	s.TCPCon = tcpcon
 
 	defer tcpcon.Close()
 
