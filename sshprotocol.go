@@ -1000,9 +1000,10 @@ func MakeDial(ms time.Duration, ip string, conf *ssh.ClientConfig) (*ssh.Client,
 
 		if err != nil {
 			log.Printf("MakeDial for %s  net.Dial errored out with: %+v", ip, err)
-			do.Do(func() {
+			do.Do(func() {})
+			go func() {
 				errs <- err
-			})
+			}()
 			return
 		}
 
@@ -1010,23 +1011,27 @@ func MakeDial(ms time.Duration, ip string, conf *ssh.ClientConfig) (*ssh.Client,
 
 		if err != nil {
 			log.Printf("MakeDial for %s during ssh.NewClientConn failed: %+v", ip, err)
-			do.Do(func() {
+			do.Do(func() {})
+			go func() {
 				errs <- err
-			})
+			}()
 			return
 		}
 
 		log.Printf("MakeDial initiating NewClient for %s", ip)
-		do.Do(func() {
+		go func() {
+			defer do.Do(func() {})
+			defer log.Println("NewClient Created With Chans And Req!")
 			cons <- ssh.NewClient(sc, chans, req)
-		})
-		log.Println("NewClient Created And Received!")
+		}()
 	}()
 
 	select {
 	case err := <-errs:
+		log.Println("NewClient Errored Out!")
 		return nil, err
 	case con := <-cons:
+		log.Println("NewClient Created And Received!")
 		return con, nil
 	case <-time.After(ms):
 		do.Do(func() {
