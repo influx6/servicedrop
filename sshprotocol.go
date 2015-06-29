@@ -13,7 +13,6 @@ import (
 	"runtime/debug"
 	"sync"
 	"syscall"
-	"time"
 	"unsafe"
 	// "github.com/pkg/sftp"
 	"code.google.com/p/go-uuid/uuid"
@@ -245,8 +244,8 @@ func ClientProxySSHProtocol(s *SSHProtocol, cmk ChannelMaker) (base *SSHProxyPro
 
 		log.Printf("Connecting Sessions for (%s) At (%s) Packet Snifers", session.User(), session.Addr())
 
-		outwriter := session.Outgoing()
-		inwriter := session.Incoming()
+		outwriter := io.ReadWriteCloser(session.Outgoing())
+		inwriter := io.ReadWriteCloser(session.Incoming())
 
 		mwriter := io.MultiWriter(nc.MasterChan, outwriter)
 		swriter := io.MultiWriter(rcChannel, inwriter)
@@ -980,69 +979,4 @@ func AddOutBoundRequestManager(s *SSHProtocol) {
 		// log.Printf("Discarding Out-Of-Bands Requests: %v", packet)
 		ssh.DiscardRequests(packet.Reqs)
 	})
-}
-
-//MakeDial returns two channels where one returns a ssh.Client and the other
-//and error
-func MakeDial(ms time.Duration, ip string, conf *ssh.ClientConfig) (*ssh.Client, error) {
-	cons := make(chan *ssh.Client)
-	errs := make(chan error)
-	do := new(sync.Once)
-
-	var con net.Conn
-	var sc ssh.Conn
-	var chans <-chan ssh.NewChannel
-	var req <-chan *ssh.Request
-	var err error
-
-	go func() {
-		con, err = net.DialTimeout("tcp", ip, ms)
-
-		if err != nil {
-			log.Printf("MakeDial for %s  net.Dial errored out with: %+v", ip, err)
-			do.Do(func() {})
-			go func() {
-				errs <- err
-			}()
-			return
-		}
-
-		sc, chans, req, err = ssh.NewClientConn(con, ip, conf)
-
-		if err != nil {
-			log.Printf("MakeDial for %s during ssh.NewClientConn failed: %+v", ip, err)
-			do.Do(func() {})
-			go func() {
-				errs <- err
-			}()
-			return
-		}
-
-		log.Printf("MakeDial initiating NewClient for %s", ip)
-		go func() {
-			defer do.Do(func() {})
-			defer log.Println("NewClient Created With Chans And Req!")
-			cons <- ssh.NewClient(sc, chans, req)
-		}()
-	}()
-
-	select {
-	case err := <-errs:
-		log.Println("NewClient Errored Out!")
-		return nil, err
-	case con := <-cons:
-		log.Println("NewClient Created And Received!")
-		return con, nil
-	case <-time.After(ms):
-		do.Do(func() {
-			defer con.Close()
-			if sc != nil {
-				defer sc.Close()
-			}
-			log.Printf("MakeDial Connection TimeOut Reached for %s", ip)
-			log.Printf("MakeDial for %s  timeout expired, will close connection", ip)
-		})
-		return nil, ErrTimeout
-
-	}
 }

@@ -88,26 +88,6 @@ type (
 		sessions *flux.SecureMap
 	}
 
-	//PipeWriter holds the writer of a pipe together
-	PipeWriter struct {
-		writer  *io.PipeWriter
-		writing func()
-		closing func()
-	}
-
-	//PipeReader holds the reader of a pipe together
-	PipeReader struct {
-		reader  *io.PipeReader
-		reading func()
-		closing func()
-	}
-
-	//Pipe holds the reader and writer of a pipe together
-	Pipe struct {
-		Reader *PipeReader
-		Writer *PipeWriter
-	}
-
 	//Session is a map that can contain the data needed for use
 	Session interface {
 		UseType(string)
@@ -118,8 +98,8 @@ type (
 		Pass() []byte
 		Start() time.Time
 		End() time.Time
-		Incoming() io.ReadWriteCloser
-		Outgoing() io.ReadWriteCloser
+		Incoming() flux.StreamInterface
+		Outgoing() flux.StreamInterface
 		Close()
 	}
 )
@@ -154,124 +134,6 @@ func (nx *NetworkReflex) Do(t net.Conn) error {
 	err := nx.when(t)
 	nx.done(t, err)
 	return err
-}
-
-//NewPipe returns a new pipe
-func NewPipe(read func(*Pipe), write func(*Pipe)) (px *Pipe) {
-	r, w := io.Pipe()
-
-	resetd := false
-
-	reader := &PipeReader{r, func() {
-		if read != nil {
-			read(px)
-		}
-	}, func() {
-		if resetd {
-			resetd = false
-		} else {
-			px.ResetPipe()
-			resetd = true
-		}
-	}}
-
-	writer := &PipeWriter{w, func() {
-		if write != nil {
-			write(px)
-		}
-	}, func() {
-		if resetd {
-			resetd = false
-		} else {
-			px.ResetPipe()
-			resetd = true
-		}
-	}}
-
-	px = &Pipe{Reader: reader, Writer: writer}
-
-	return
-}
-
-//Close closes both the reader and writer
-func (p *Pipe) Close() error {
-	err := p.Reader.Close()
-	errx := p.Writer.Close()
-
-	if err != nil {
-		return err
-	}
-
-	return errx
-}
-
-//ResetPipe takes a new pipe to use
-func (p *Pipe) ResetPipe() {
-	r, w := io.Pipe()
-	p.Reader.ResetReader(r)
-	p.Writer.ResetWriter(w)
-}
-
-//ResetReader takes a new pipe to use
-func (p *PipeReader) ResetReader(r *io.PipeReader) {
-	p.Close()
-	p.reader = r
-}
-
-//ResetWriter takes a new pipe to use
-func (p *PipeWriter) ResetWriter(r *io.PipeWriter) {
-	p.Close()
-	p.writer = r
-}
-
-//CloseWithError closes the internal pipe with a given error
-func (p *PipeReader) CloseWithError(err error) error {
-	if p.reader != nil {
-		return p.reader.CloseWithError(err)
-	}
-	return err
-}
-
-//CloseWithError closes the internal pipe with a given error
-func (p *PipeWriter) CloseWithError(err error) error {
-	if p.writer != nil {
-		return p.writer.CloseWithError(err)
-	}
-	return err
-}
-
-//Close closes the internal pipe reader
-func (p *PipeWriter) Close() error {
-	if p.writer != nil {
-		return p.writer.Close()
-	}
-	return nil
-}
-
-//Close closes the internal pipe reader
-func (p *PipeReader) Close() error {
-	if p.reader != nil {
-		return p.reader.Close()
-	}
-	return nil
-}
-
-//Read reads the data into the byte slice and calls PipeReader reading() func
-func (p *PipeReader) Read(b []byte) (int, error) {
-	if p.reading != nil {
-		go p.reading()
-	}
-	n, err := p.reader.Read(b)
-	return n, err
-}
-
-//Write write the data from the byte slice and calls PipeWriter writing() func
-func (p *PipeWriter) Write(b []byte) (int, error) {
-	if p.writing != nil {
-		go p.writing()
-	}
-	n, err := p.writer.Write(b)
-	return n, err
 }
 
 //KeyAuthenticationCallback is the type for the ssh-server key-callback function
