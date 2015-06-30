@@ -38,28 +38,23 @@ func (p *ProxyStream) handleProcess() {
 
 	go doBrocker(p.dest, p.src, p.clientend, p.errorend)
 	go doBrocker(p.src, p.dest, p.serverend, p.errorend)
+	go reportError(p.errorend)
 
-loop:
-	for {
-		select {
-		case <-p.clientend:
-			//close the server and notifier serverend
-			ex := p.dest.Close()
-			if ex != nil {
-				go func() { p.errorend <- ex }()
-			}
-			p.serverend <- struct{}{}
-		case <-p.serverend:
-			ex := p.src.Close()
-			if ex != nil {
-				go func() { p.errorend <- ex }()
-			}
-			p.clientend <- struct{}{}
-		case ex := <-p.errorend:
-			log.Println("Error occured:")
-		case <-p.closed:
-			break loop
+	select {
+	case <-p.clientend:
+		//close the server and notifier serverend
+		ex := p.dest.Close()
+		if ex != nil {
+			go func() { p.errorend <- ex }()
 		}
+		p.serverend <- struct{}{}
+	case <-p.serverend:
+		//close the client and notifier clientend
+		ex := p.src.Close()
+		if ex != nil {
+			go func() { p.errorend <- ex }()
+		}
+		p.clientend <- struct{}{}
 	}
 }
 
@@ -84,6 +79,12 @@ func NewProxyStream(src, dest net.Conn) (p *ProxyStream) {
 	go p.handleProcess()
 
 	return
+}
+
+func reportError(n NotifierError) {
+	for ex := range n {
+		log.Printf("Recieved Error %+s", ex.Error())
+	}
 }
 
 func doBrocker(dest, src net.Conn, ender, errs Notifer) {
