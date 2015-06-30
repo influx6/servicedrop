@@ -5,6 +5,8 @@ import (
 	"log"
 	"net"
 	"sync"
+
+	"github.com/influx6/flux"
 )
 
 type (
@@ -23,6 +25,8 @@ type (
 		serverend Notifer
 		errorend  Notifier
 		do        *sync.Once
+		incoming  flux.StackStreamers
+		outgoing  flux.StackStreamers
 	}
 )
 
@@ -36,8 +40,14 @@ func (p *ProxyStream) Close() {
 //Close stops the streaming
 func (p *ProxyStream) handleProcess() {
 
-	go doBrocker(p.dest, p.src, p.clientend, p.errorend)
-	go doBrocker(p.src, p.dest, p.serverend, p.errorend)
+	destwriter := io.MultiWriter(p.dest, p.outgoing)
+	srcwriter := io.MultiWriter(p.src, p.incoming)
+
+	// destwriter := p.dest
+	// srcwriter := p.src
+
+	go doBrocker(destwriter, p.src, p.clientend, p.errorend)
+	go doBrocker(srcwriter, p.dest, p.serverend, p.errorend)
 	go reportError(p.errorend)
 
 	select {
@@ -56,6 +66,7 @@ func (p *ProxyStream) handleProcess() {
 		}
 		p.clientend <- struct{}{}
 	}
+
 }
 
 //ProxyConn provides a simple function call insteadof using NewProxyStream,
@@ -74,6 +85,8 @@ func NewProxyStream(src, dest net.Conn) (p *ProxyStream) {
 		clientend: make(Notifier, 1),
 		errorend:  make(NotifierError),
 		do:        new(sync.Once),
+		incoming:  flux.NewIdentityStream(),
+		outgoing:  flux.NewIdentityStream(),
 	}
 
 	go p.handleProcess()
