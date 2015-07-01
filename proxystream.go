@@ -22,8 +22,8 @@ type (
 		src       net.Conn
 		closed    Notifier
 		clientend Notifier
-		serverend Notifer
-		errorend  Notifier
+		serverend Notifier
+		errorend  NotifierError
 		do        *sync.Once
 		incoming  flux.StackStreamers
 		outgoing  flux.StackStreamers
@@ -33,7 +33,7 @@ type (
 //Close stops the streaming
 func (p *ProxyStream) Close() {
 	p.do.Do(func() {
-		close(p.closer)
+		close(p.closed)
 	})
 }
 
@@ -48,9 +48,13 @@ func (p *ProxyStream) handleProcess() {
 
 	go doBrocker(destwriter, p.src, p.clientend, p.errorend)
 	go doBrocker(srcwriter, p.dest, p.serverend, p.errorend)
+
 	go reportError(p.errorend)
 
 	select {
+	case <-p.closed:
+		log.Println("Closing streams!")
+		p.serverend <- struct{}{}
 	case <-p.clientend:
 		//close the server and notifier serverend
 		ex := p.dest.Close()
@@ -100,10 +104,10 @@ func reportError(n NotifierError) {
 	}
 }
 
-func doBrocker(dest, src net.Conn, ender, errs Notifer) {
+func doBrocker(dest io.Writer, src io.Reader, ender Notifier, errs NotifierError) {
 	_, ex := io.Copy(dest, src)
 
-	if err != nil {
+	if ex != nil {
 		go func() { errs <- ex }()
 	}
 
@@ -112,5 +116,5 @@ func doBrocker(dest, src net.Conn, ender, errs Notifer) {
 	// 	go func() { errs <- erx }()
 	// }
 
-	enders <- struct{}{}
+	ender <- struct{}{}
 }
