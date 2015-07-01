@@ -28,32 +28,85 @@ type (
 		incoming  flux.StackStreamers
 		outgoing  flux.StackStreamers
 	}
+
+	//ProxyStreams defines the streaming api member functions for streams
+	ProxyStreams interface {
+		Close() error
+		doBroker(io.Writer, io.Reader, Notifier)
+	}
+
+	//TCPProxyStream handles bare tcp stream proxying
+	TCPProxyStream struct {
+		*ProxyStream
+	}
 )
 
-//Close stops the streaming
-func (p *ProxyStream) Close() {
-	p.do.Do(func() {
-		close(p.closed)
-	})
+//reportEror helper to just log out err from a error channel
+func reportError(n NotifierError) {
+	for ex := range n {
+		log.Printf("Recieved Error %+s", ex.Error())
+	}
+}
+
+//NewProxyStream returns a new proxy streamer
+func NewProxyStream(src, dest net.Conn) (p *ProxyStream) {
+	p = &ProxyStream{
+		src:       src,
+		dest:      dest,
+		closed:    make(Notifier),
+		serverend: make(Notifier, 1),
+		clientend: make(Notifier, 1),
+		errorend:  make(NotifierError),
+		do:        new(sync.Once),
+		incoming:  flux.NewIdentityStream(),
+		outgoing:  flux.NewIdentityStream(),
+	}
+	return
+}
+
+//empty broker implementation
+func (p *ProxyStream) doBroker(d io.Writer, s io.Reader, r Notifier) {
 }
 
 //Close stops the streaming
-func (p *ProxyStream) handleProcess() {
+func (p *ProxyStream) Close() error {
+	p.do.Do(func() {
+		close(p.closed)
+	})
+	return nil
+}
+
+//TCPStream provides a tcp proxy streamer
+func TCPStream(src net.Conn, dest net.Conn) ProxyStreams {
+	ts := &TCPStream{NewProxyStream(src, dest)}
+	go ts.handle()
+	return ts
+}
+
+//doBroker provides the internal opeations of the streamer
+func (p *TCPProxyStream) doBroker(dest io.Writer, src io.Reader, end Notifier) {
+	_, ex := io.Copy(dest, src)
+
+	if ex != nil {
+		go func() { errs <- ex }()
+	}
+
+	end <- struct{}{}
+}
+
+func (p *TCPProxyStream) handleProcess() {
 
 	destwriter := io.MultiWriter(p.dest, p.outgoing)
 	srcwriter := io.MultiWriter(p.src, p.incoming)
 
-	// destwriter := p.dest
-	// srcwriter := p.src
-
-	go doBroker(destwriter, p.src, p.clientend, p.errorend)
-	go doBroker(srcwriter, p.dest, p.serverend, p.errorend)
+	go p.doBroker(destwriter, p.src, p.clientend)
+	go p.doBroker(srcwriter, p.dest, p.serverend)
 
 	go reportError(p.errorend)
 
 	select {
 	case <-p.closed:
-		log.Println("Closing streams!")
+		log.Println("Closing destination first streams!")
 		p.serverend <- struct{}{}
 	case <-p.clientend:
 		//close the server and notifier serverend
@@ -71,50 +124,4 @@ func (p *ProxyStream) handleProcess() {
 		p.clientend <- struct{}{}
 	}
 
-}
-
-//ProxyConn provides a simple function call insteadof using NewProxyStream,
-//just convienience method
-func ProxyConn(src net.Conn, dest net.Conn) *ProxyStream {
-	return NewProxyStream(src, dest)
-}
-
-//NewProxyStream returns a new proxy streamer
-func NewProxyStream(src, dest net.Conn) (p *ProxyStream) {
-	p = &ProxyStream{
-		src:       src,
-		dest:      dest,
-		closed:    make(Notifier),
-		serverend: make(Notifier, 1),
-		clientend: make(Notifier, 1),
-		errorend:  make(NotifierError),
-		do:        new(sync.Once),
-		incoming:  flux.NewIdentityStream(),
-		outgoing:  flux.NewIdentityStream(),
-	}
-
-	go p.handleProcess()
-
-	return
-}
-
-func reportError(n NotifierError) {
-	for ex := range n {
-		log.Printf("Recieved Error %+s", ex.Error())
-	}
-}
-
-func doBroker(dest io.Writer, src io.Reader, ender Notifier, errs NotifierError) {
-	_, ex := io.Copy(dest, src)
-
-	if ex != nil {
-		go func() { errs <- ex }()
-	}
-
-	// erx := src.Close()
-	// if erx != nil {
-	// 	go func() { errs <- erx }()
-	// }
-
-	ender <- struct{}{}
 }

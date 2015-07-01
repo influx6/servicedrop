@@ -55,7 +55,7 @@ func MakeConnections(from, to int, t *testing.T) {
 
 		res, err := net.Dial("tcp", tourl)
 
-		prx := ProxyConn(req, res)
+		prx := TCPStream(req, res)
 
 		log.Println("Created proxy:", prx)
 
