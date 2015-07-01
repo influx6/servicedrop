@@ -46,8 +46,8 @@ func (p *ProxyStream) handleProcess() {
 	// destwriter := p.dest
 	// srcwriter := p.src
 
-	go doBrocker(destwriter, p.src, p.clientend, p.errorend)
-	go doBrocker(srcwriter, p.dest, p.serverend, p.errorend)
+	go doBroker(destwriter, p.src, p.clientend, p.errorend)
+	go doBroker(srcwriter, p.dest, p.serverend, p.errorend)
 
 	go reportError(p.errorend)
 
@@ -104,7 +104,7 @@ func reportError(n NotifierError) {
 	}
 }
 
-func doBrocker(dest io.Writer, src io.Reader, ender Notifier, errs NotifierError) {
+func doBroker(dest io.Writer, src io.Reader, ender Notifier, errs NotifierError) {
 	_, ex := io.Copy(dest, src)
 
 	if ex != nil {
