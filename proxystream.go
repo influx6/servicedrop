@@ -33,6 +33,8 @@ type (
 	ProxyStreams interface {
 		Close() error
 		doBroker(io.Writer, io.Reader, Notifier)
+		In() flux.StackStreamers
+		Out() flux.StackStreamers
 	}
 
 	//TCPProxyStream handles bare tcp stream proxying
@@ -49,7 +51,16 @@ func reportError(n NotifierError) {
 }
 
 //NewProxyStream returns a new proxy streamer
-func NewProxyStream(src, dest net.Conn) (p *ProxyStream) {
+func NewProxyStream(src, dest net.Conn, in, out flux.StackStreamers) (p *ProxyStream) {
+
+	if in == nil {
+		in = flux.NewIdentityStream()
+	}
+
+	if out == nil {
+		out = flux.NewIdentityStream()
+	}
+
 	p = &ProxyStream{
 		src:       src,
 		dest:      dest,
@@ -58,10 +69,20 @@ func NewProxyStream(src, dest net.Conn) (p *ProxyStream) {
 		clientend: make(Notifier, 1),
 		errorend:  make(NotifierError),
 		do:        new(sync.Once),
-		incoming:  flux.NewIdentityStream(),
-		outgoing:  flux.NewIdentityStream(),
+		incoming:  in,
+		outgoing:  out,
 	}
 	return
+}
+
+//Out treturns the internal out stream of this proxy
+func (p *ProxyStream) Out() flux.StackStreamers {
+	return p.outgoing
+}
+
+//In returns the internal in stream of this proxy
+func (p *ProxyStream) In() flux.StackStreamers {
+	return p.incoming
 }
 
 //empty broker implementation
@@ -77,9 +98,9 @@ func (p *ProxyStream) Close() error {
 }
 
 //TCPStream provides a tcp proxy streamer
-func TCPStream(src net.Conn, dest net.Conn) ProxyStreams {
-	ts := &TCPStream{NewProxyStream(src, dest)}
-	go ts.handle()
+func TCPStream(src net.Conn, dest net.Conn, in, out flux.StackStreamers) ProxyStreams {
+	ts := &TCPProxyStream{NewProxyStream(src, dest, in, out)}
+	go ts.handleProcess()
 	return ts
 }
 
@@ -88,7 +109,7 @@ func (p *TCPProxyStream) doBroker(dest io.Writer, src io.Reader, end Notifier) {
 	_, ex := io.Copy(dest, src)
 
 	if ex != nil {
-		go func() { errs <- ex }()
+		go func() { p.errorend <- ex }()
 	}
 
 	end <- struct{}{}
